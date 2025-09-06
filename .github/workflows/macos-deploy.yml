@@ -17,7 +17,15 @@ jobs:
     
     - name: Install Qt6
       run: |
-        brew install qt6 cmake
+        # Install Qt6 first
+        brew install qt6
+        
+        # Handle cmake installation (may already exist)
+        if ! command -v cmake >/dev/null 2>&1; then
+          brew install cmake
+        else
+          echo "CMake already installed: $(cmake --version)"
+        fi
         
     - name: Configure CMake
       run: |
