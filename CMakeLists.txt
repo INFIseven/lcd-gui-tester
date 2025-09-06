@@ -7,7 +7,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Network)
 
-qt_standard_project_setup()
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
 
 set(SOURCES
     src/main.cpp
@@ -30,14 +32,9 @@ set(HEADERS
     src/startupchecker.h
 )
 
-qt_add_executable(lcd-gui-tester
+add_executable(lcd-gui-tester
     ${SOURCES}
     ${HEADERS}
-)
-
-qt_add_resources(lcd-gui-tester "resources"
-    PREFIX "/"
-    FILES
 )
 
 target_link_libraries(lcd-gui-tester PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui Qt6::Network)
