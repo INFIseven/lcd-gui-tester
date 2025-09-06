@@ -35,16 +35,13 @@ jobs:
     - name: Build
       run: cmake --build build --config Release
       
-    - name: Create App Bundle
+    - name: Package macOS App
       run: |
-        # Create app bundle structure
-        mkdir -p "LCD GUI Tester.app/Contents/MacOS"
-        mkdir -p "LCD GUI Tester.app/Contents/Resources"
+        # CMake already created the app bundle at build/lcd-gui-tester.app
+        # Just rename it to have a nicer name
+        mv "build/lcd-gui-tester.app" "LCD GUI Tester.app"
         
-        # Copy executable
-        cp build/lcd-gui-tester "LCD GUI Tester.app/Contents/MacOS/"
-        
-        # Create Info.plist
+        # Update Info.plist with better metadata
         cat > "LCD GUI Tester.app/Contents/Info.plist" << 'EOF'
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -56,6 +53,8 @@ jobs:
             <string>com.infi7.lcd-gui-tester</string>
             <key>CFBundleName</key>
             <string>LCD GUI Tester</string>
+            <key>CFBundleDisplayName</key>
+            <string>LCD GUI Tester</string>
             <key>CFBundleVersion</key>
             <string>1.0.0</string>
             <key>CFBundleShortVersionString</key>
@@ -64,6 +63,8 @@ jobs:
             <string>APPL</string>
             <key>NSHighResolutionCapable</key>
             <true/>
+            <key>LSMinimumSystemVersion</key>
+            <string>10.15</string>
         </dict>
         </plist>
         EOF
