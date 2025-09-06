@@ -1,0 +1,82 @@
+name: macOS Build and Deploy
+
+on:
+  push:
+    branches: [ master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Qt6
+      run: |
+        brew install qt6 cmake
+        
+    - name: Configure CMake
+      run: |
+        export Qt6_DIR=$(brew --prefix qt6)/lib/cmake/Qt6
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DQt6_DIR=$Qt6_DIR
+      
+    - name: Build
+      run: cmake --build build --config Release
+      
+    - name: Create App Bundle
+      run: |
+        # Create app bundle structure
+        mkdir -p "LCD GUI Tester.app/Contents/MacOS"
+        mkdir -p "LCD GUI Tester.app/Contents/Resources"
+        
+        # Copy executable
+        cp build/lcd-gui-tester "LCD GUI Tester.app/Contents/MacOS/"
+        
+        # Create Info.plist
+        cat > "LCD GUI Tester.app/Contents/Info.plist" << 'EOF'
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleExecutable</key>
+            <string>lcd-gui-tester</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.infi7.lcd-gui-tester</string>
+            <key>CFBundleName</key>
+            <string>LCD GUI Tester</string>
+            <key>CFBundleVersion</key>
+            <string>1.0.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0.0</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+        </dict>
+        </plist>
+        EOF
+        
+        # Use macdeployqt to bundle Qt libraries
+        $(brew --prefix qt6)/bin/macdeployqt "LCD GUI Tester.app"
+        
+        # Create DMG
+        hdiutil create -volname "LCD GUI Tester" -srcfolder "LCD GUI Tester.app" -ov -format UDZO lcd-gui-tester-macos.dmg
+        
+    - name: Upload Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: lcd-gui-tester-macos
+        path: lcd-gui-tester-macos.dmg
+        
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: lcd-gui-tester-macos.dmg
+        prerelease: ${{ contains(github.ref_name, '-') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
