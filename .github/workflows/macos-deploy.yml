@@ -72,29 +72,48 @@ jobs:
         # Run macdeployqt a second time to catch any missed dependencies
         $(brew --prefix qt6)/bin/macdeployqt "LCD GUI Tester.app" -verbose=2
         
-        # Manually ensure QtDBus framework is included since it's often missed
+        # Handle QtDBus framework and its dependencies
         QT_LIB_PATH=$(brew --prefix qt6)/lib
         APP_FRAMEWORKS="LCD GUI Tester.app/Contents/Frameworks"
+        APP_LIBS="LCD GUI Tester.app/Contents/Libraries"
         
-        # List of Qt frameworks that might be missed by macdeployqt
-        MISSING_FRAMEWORKS=("QtDBus")
+        # Create Libraries directory for system dependencies
+        mkdir -p "$APP_LIBS"
         
-        for framework in "${MISSING_FRAMEWORKS[@]}"; do
-          if [[ -d "$QT_LIB_PATH/${framework}.framework" ]] && [[ ! -d "$APP_FRAMEWORKS/${framework}.framework" ]]; then
-            echo "Copying missing ${framework} framework..."
-            cp -R "$QT_LIB_PATH/${framework}.framework" "$APP_FRAMEWORKS/"
+        # Copy QtDBus framework if it exists but wasn't included
+        if [[ -d "$QT_LIB_PATH/QtDBus.framework" ]] && [[ ! -d "$APP_FRAMEWORKS/QtDBus.framework" ]]; then
+          echo "Copying QtDBus framework..."
+          cp -R "$QT_LIB_PATH/QtDBus.framework" "$APP_FRAMEWORKS/"
+          
+          # Fix the framework's install name
+          install_name_tool -id "@rpath/QtDBus.framework/Versions/A/QtDBus" \
+            "$APP_FRAMEWORKS/QtDBus.framework/Versions/A/QtDBus"
             
-            # Fix the framework's install name
-            install_name_tool -id "@rpath/${framework}.framework/Versions/A/${framework}" \
-              "$APP_FRAMEWORKS/${framework}.framework/Versions/A/${framework}"
-              
-            # Update any references in the main executable
+          # Update any references in the main executable
+          install_name_tool -change \
+            "$QT_LIB_PATH/QtDBus.framework/Versions/A/QtDBus" \
+            "@rpath/QtDBus.framework/Versions/A/QtDBus" \
+            "LCD GUI Tester.app/Contents/MacOS/lcd-gui-tester"
+        fi
+        
+        # Copy dbus system library that QtDBus depends on
+        DBUS_LIB=$(brew --prefix dbus)/lib/libdbus-1.3.dylib
+        if [[ -f "$DBUS_LIB" ]]; then
+          echo "Copying dbus system library..."
+          cp "$DBUS_LIB" "$APP_LIBS/"
+          
+          # Fix the library's install name
+          install_name_tool -id "@rpath/../Libraries/libdbus-1.3.dylib" \
+            "$APP_LIBS/libdbus-1.3.dylib"
+            
+          # Update QtDBus to use the bundled dbus library
+          if [[ -f "$APP_FRAMEWORKS/QtDBus.framework/Versions/A/QtDBus" ]]; then
             install_name_tool -change \
-              "$QT_LIB_PATH/${framework}.framework/Versions/A/${framework}" \
-              "@rpath/${framework}.framework/Versions/A/${framework}" \
-              "LCD GUI Tester.app/Contents/MacOS/lcd-gui-tester"
+              "/usr/local/opt/dbus/lib/libdbus-1.3.dylib" \
+              "@rpath/../Libraries/libdbus-1.3.dylib" \
+              "$APP_FRAMEWORKS/QtDBus.framework/Versions/A/QtDBus"
           fi
-        done
+        fi
         
         # Verify all Qt dependencies are properly linked
         echo "Checking Qt dependencies in the final app..."
