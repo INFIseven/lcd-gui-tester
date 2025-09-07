@@ -27,3 +27,11 @@ make
 ## Usage
 
 Run the executable to open the main window interface for LCD GUI testing.
+
+## Test deployement  
+
+Use `act` for test deployement with  
+
+``` bash
+act --artifact-server-path /tmp/artifacts
+```

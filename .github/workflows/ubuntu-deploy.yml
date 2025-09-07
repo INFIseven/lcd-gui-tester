@@ -2,11 +2,8 @@ name: Ubuntu Build and Deploy
 
 on:
   push:
-    branches: [ master ]
     tags:
       - 'v*'
-  pull_request:
-    branches: [ master ]
 
 jobs:
   build:
@@ -29,18 +26,73 @@ jobs:
       
     - name: Package Application
       run: |
-        # Create distribution directory
-        mkdir -p lcd-gui-tester-linux
+        # Create distribution directory structure
+        mkdir -p lcd-gui-tester-linux/lib
+        mkdir -p lcd-gui-tester-linux/plugins/platforms
+        
+        # Copy executable
         cp build/lcd-gui-tester lcd-gui-tester-linux/
         cp README.md lcd-gui-tester-linux/
         
-        # Create a simple launcher script
+        # Find and copy Qt6 libraries
+        echo "Bundling Qt6 libraries..."
+        ldd build/lcd-gui-tester | grep -E "(Qt6|libQt)" | awk '{print $3}' | while read lib; do
+          if [[ -f "$lib" ]]; then
+            echo "Copying $lib"
+            cp "$lib" lcd-gui-tester-linux/lib/
+          fi
+        done
+        
+        # Copy Qt6 platform plugins (essential for GUI apps)
+        QT_PLUGIN_PATH="/usr/lib/x86_64-linux-gnu/qt6/plugins"
+        if [[ -d "$QT_PLUGIN_PATH/platforms" ]]; then
+          cp -r "$QT_PLUGIN_PATH/platforms"/* lcd-gui-tester-linux/plugins/platforms/ 2>/dev/null || true
+        fi
+        
+        # Copy other essential Qt6 plugins
+        for plugin_dir in imageformats iconengines; do
+          if [[ -d "$QT_PLUGIN_PATH/$plugin_dir" ]]; then
+            mkdir -p lcd-gui-tester-linux/plugins/$plugin_dir
+            cp -r "$QT_PLUGIN_PATH/$plugin_dir"/* lcd-gui-tester-linux/plugins/$plugin_dir/ 2>/dev/null || true
+          fi
+        done
+        
+        # Create launcher script that sets up library paths
         cat > lcd-gui-tester-linux/lcd-gui-tester.sh << 'EOF'
         #!/bin/bash
         DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        
+        # Set up library and plugin paths
+        export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
+        export QT_PLUGIN_PATH="$DIR/plugins"
+        export QT_QPA_PLATFORM_PLUGIN_PATH="$DIR/plugins/platforms"
+        
+        # Run the application
         exec "$DIR/lcd-gui-tester" "$@"
         EOF
         chmod +x lcd-gui-tester-linux/lcd-gui-tester.sh
+        
+        # Create simple installation instructions
+        cat > lcd-gui-tester-linux/INSTALL.txt << 'EOF'
+        LCD GUI Tester - Installation Instructions
+        =========================================
+        
+        This package contains a self-contained version of LCD GUI Tester with all Qt6 libraries bundled.
+        
+        To run:
+        1. Extract this archive
+        2. Run: ./lcd-gui-tester.sh
+        
+        Or run the executable directly: ./lcd-gui-tester
+        
+        Requirements: Linux x86_64 with glibc 2.31+ (Ubuntu 20.04+ or equivalent)
+        EOF
+        
+        # Show what we've bundled
+        echo "Bundled libraries:"
+        ls -la lcd-gui-tester-linux/lib/
+        echo "Bundled plugins:"
+        find lcd-gui-tester-linux/plugins -type f
         
         # Create tarball
         tar -czf lcd-gui-tester-linux.tar.gz lcd-gui-tester-linux/

@@ -2,6 +2,36 @@ cmake_minimum_required(VERSION 3.20)
 
 project(lcd-gui-tester VERSION 1.0.0 LANGUAGES CXX)
 
+# Get git tag for version display
+execute_process(
+    COMMAND git describe --tags --exact-match HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_TAG_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+
+# If no exact tag, get version with commit info and dirty status
+if(NOT GIT_TAG_VERSION)
+    execute_process(
+        COMMAND git describe --tags --always --dirty
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_TAG_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+endif()
+
+# Fallback to project version if git is not available
+if(NOT GIT_TAG_VERSION)
+    set(GIT_TAG_VERSION "v${PROJECT_VERSION}")
+endif()
+
+message(STATUS "Application version: ${GIT_TAG_VERSION}")
+
+# Pass version to the application
+add_compile_definitions(APP_VERSION="${GIT_TAG_VERSION}")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

@@ -19,7 +19,11 @@ MainWindow::MainWindow(QWidget *parent)
     , m_startupChecker(nullptr)
     , m_scriptRunner(nullptr)
 {
-    setWindowTitle("LCD GUI Tester");
+    QString title = "LCD GUI Tester";
+#ifdef APP_VERSION
+    title += QString(" - %1").arg(APP_VERSION);
+#endif
+    setWindowTitle(title);
     setGeometry(100, 100, 800, 600);
     
     // Initialize components
