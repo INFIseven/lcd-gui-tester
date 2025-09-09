@@ -10,12 +10,16 @@
 #include <QDebug>
 #include <QStandardPaths>
 #include <QTextStream>
+#ifdef Q_OS_MACOS
+#include <QSysInfo>
+#endif
 
 // Python distribution URLs (using Python 3.11 embedded)
 const QString EmbeddedPython::PYTHON_WINDOWS_X64_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-win32.zip";
 const QString EmbeddedPython::PYTHON_WINDOWS_X86_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-win32.zip";
 const QString EmbeddedPython::PYTHON_LINUX_X64_URL = "https://github.com/indygreg/python-build-standalone/releases/download/20240415/cpython-3.11.9+20240415-x86_64-unknown-linux-gnu-install_only.tar.gz";
-const QString EmbeddedPython::PYTHON_MACOS_URL = "https://github.com/indygreg/python-build-standalone/releases/download/20240415/cpython-3.11.9+20240415-x86_64-apple-darwin-install_only.tar.gz";
+const QString EmbeddedPython::PYTHON_MACOS_X64_URL = "https://github.com/indygreg/python-build-standalone/releases/download/20240415/cpython-3.11.9+20240415-x86_64-apple-darwin-install_only.tar.gz";
+const QString EmbeddedPython::PYTHON_MACOS_ARM64_URL = "https://github.com/indygreg/python-build-standalone/releases/download/20240415/cpython-3.11.9+20240415-aarch64-apple-darwin-install_only.tar.gz";
 
 EmbeddedPython::EmbeddedPython(QWidget* parent)
     : QObject(parent)
@@ -61,7 +65,20 @@ EmbeddedPython::PythonDistribution EmbeddedPython::getDistributionForPlatform()
     dist.extractedFolder = "python";
     dist.executable = "bin/python3";
 #elif defined(Q_OS_MACOS)
-    dist.url = PYTHON_MACOS_URL;
+    // Detect architecture on macOS
+    QString architecture = QSysInfo::currentCpuArchitecture();
+    qDebug() << "Detected macOS architecture:" << architecture;
+    
+    if (architecture == "arm64" || architecture == "aarch64") {
+        // Apple Silicon (M1, M2, etc.)
+        dist.url = PYTHON_MACOS_ARM64_URL;
+        qDebug() << "Using ARM64 Python distribution for Apple Silicon";
+    } else {
+        // Intel macOS
+        dist.url = PYTHON_MACOS_X64_URL;
+        qDebug() << "Using x64 Python distribution for Intel Mac";
+    }
+    
     dist.filename = "python-embedded.tar.gz";
     dist.extractedFolder = "python";
     dist.executable = "bin/python3";

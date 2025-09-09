@@ -1,0 +1,152 @@
+name: macOS ARM Build and Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-latest-large
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Qt6
+      run: |
+        # Install Qt6 first
+        brew install qt6
+        
+        # Handle cmake installation (may already exist)
+        if ! command -v cmake >/dev/null 2>&1; then
+          brew install cmake
+        else
+          echo "CMake already installed: $(cmake --version)"
+        fi
+        
+        # Verify we're running on ARM64
+        echo "Architecture: $(uname -m)"
+        echo "System info: $(uname -a)"
+        
+    - name: Configure CMake
+      run: |
+        export Qt6_DIR=$(brew --prefix qt6)/lib/cmake/Qt6
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DQt6_DIR=$Qt6_DIR
+      
+    - name: Build
+      run: cmake --build build --config Release
+      
+    - name: Package macOS ARM App
+      run: |
+        # CMake already created the app bundle at build/lcd-gui-tester.app
+        # Just rename it to have a nicer name
+        mv "build/lcd-gui-tester.app" "LCD GUI Tester.app"
+        
+        # Update Info.plist with better metadata and ARM64 architecture
+        cat > "LCD GUI Tester.app/Contents/Info.plist" << 'EOF'
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleExecutable</key>
+            <string>lcd-gui-tester</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.infi7.lcd-gui-tester</string>
+            <key>CFBundleName</key>
+            <string>LCD GUI Tester</string>
+            <key>CFBundleDisplayName</key>
+            <string>LCD GUI Tester</string>
+            <key>CFBundleVersion</key>
+            <string>1.0.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0.0</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>LSMinimumSystemVersion</key>
+            <string>13.0</string>
+            <key>LSArchitecturePriority</key>
+            <array>
+                <string>arm64</string>
+                <string>x86_64</string>
+            </array>
+        </dict>
+        </plist>
+        EOF
+        
+        # Use macdeployqt to bundle Qt libraries with verbose output and all modules
+        $(brew --prefix qt6)/bin/macdeployqt "LCD GUI Tester.app" -verbose=2 -always-overwrite
+        
+        # Run macdeployqt a second time to catch any missed dependencies
+        $(brew --prefix qt6)/bin/macdeployqt "LCD GUI Tester.app" -verbose=2
+        
+        # Handle QtDBus framework and its dependencies
+        QT_LIB_PATH=$(brew --prefix qt6)/lib
+        APP_FRAMEWORKS="LCD GUI Tester.app/Contents/Frameworks"
+        APP_LIBS="LCD GUI Tester.app/Contents/Libraries"
+        
+        # Create Libraries directory for system dependencies
+        mkdir -p "$APP_LIBS"
+        
+        # Copy QtDBus framework if it exists but wasn't included
+        if [[ -d "$QT_LIB_PATH/QtDBus.framework" ]] && [[ ! -d "$APP_FRAMEWORKS/QtDBus.framework" ]]; then
+          echo "Copying QtDBus framework..."
+          cp -R "$QT_LIB_PATH/QtDBus.framework" "$APP_FRAMEWORKS/"
+          
+          # Fix the framework's install name
+          install_name_tool -id "@rpath/QtDBus.framework/Versions/A/QtDBus" \
+            "$APP_FRAMEWORKS/QtDBus.framework/Versions/A/QtDBus"
+            
+          # Update any references in the main executable
+          install_name_tool -change \
+            "$QT_LIB_PATH/QtDBus.framework/Versions/A/QtDBus" \
+            "@rpath/QtDBus.framework/Versions/A/QtDBus" \
+            "LCD GUI Tester.app/Contents/MacOS/lcd-gui-tester"
+        fi
+        
+        # Copy dbus system library that QtDBus depends on
+        DBUS_LIB=$(brew --prefix dbus)/lib/libdbus-1.3.dylib
+        if [[ -f "$DBUS_LIB" ]]; then
+          echo "Copying dbus system library..."
+          cp "$DBUS_LIB" "$APP_LIBS/"
+          
+          # Fix the library's install name
+          install_name_tool -id "@rpath/../Libraries/libdbus-1.3.dylib" \
+            "$APP_LIBS/libdbus-1.3.dylib"
+            
+          # Update QtDBus to use the bundled dbus library
+          if [[ -f "$APP_FRAMEWORKS/QtDBus.framework/Versions/A/QtDBus" ]]; then
+            install_name_tool -change \
+              "/usr/local/opt/dbus/lib/libdbus-1.3.dylib" \
+              "@rpath/../Libraries/libdbus-1.3.dylib" \
+              "$APP_FRAMEWORKS/QtDBus.framework/Versions/A/QtDBus"
+          fi
+        fi
+        
+        # Verify all Qt dependencies are properly linked
+        echo "Checking Qt dependencies in the final app..."
+        otool -L "LCD GUI Tester.app/Contents/MacOS/lcd-gui-tester"
+        
+        # Verify the binary architecture
+        echo "Binary architecture:"
+        file "LCD GUI Tester.app/Contents/MacOS/lcd-gui-tester"
+        lipo -info "LCD GUI Tester.app/Contents/MacOS/lcd-gui-tester"
+        
+        # Create DMG with ARM suffix
+        hdiutil create -volname "LCD GUI Tester" -srcfolder "LCD GUI Tester.app" -ov -format UDZO lcd-gui-tester-macos-arm64.dmg
+        
+    - name: Upload Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: lcd-gui-tester-macos-arm64
+        path: lcd-gui-tester-macos-arm64.dmg
+        
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: lcd-gui-tester-macos-arm64.dmg
+        prerelease: ${{ contains(github.ref_name, '-') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

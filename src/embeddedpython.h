@@ -62,5 +62,6 @@ private:
     static const QString PYTHON_WINDOWS_X64_URL;
     static const QString PYTHON_WINDOWS_X86_URL;
     static const QString PYTHON_LINUX_X64_URL;
-    static const QString PYTHON_MACOS_URL;
+    static const QString PYTHON_MACOS_X64_URL;
+    static const QString PYTHON_MACOS_ARM64_URL;
 };
