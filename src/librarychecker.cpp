@@ -36,6 +36,8 @@ LibraryChecker::~LibraryChecker()
 
 bool LibraryChecker::checkAndDownloadLibraries()
 {
+    bool allLibrariesPresent = true;
+    
     if (!isLvglPresent()) {
         QMessageBox::StandardButton reply = QMessageBox::question(
             m_parent,
@@ -49,7 +51,7 @@ bool LibraryChecker::checkAndDownloadLibraries()
         
         if (reply == QMessageBox::Yes) {
             downloadLvgl();
-            return m_downloadSuccess;
+            allLibrariesPresent = allLibrariesPresent && m_downloadSuccess;
         } else {
             QMessageBox::warning(
                 m_parent,
@@ -57,11 +59,36 @@ bool LibraryChecker::checkAndDownloadLibraries()
                 "LVGL library is required for this application to function properly.\n"
                 "Please install it manually or restart the application to download it."
             );
-            return false;
+            allLibrariesPresent = false;
         }
     }
     
-    return true;
+    if (!isNrf52SdkPresent()) {
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            m_parent,
+            "Missing SDK",
+            "nRF52 SDK is not found and is required for this application.\n"
+            "Would you like to download it now?\n\n"
+            "This will download nRF5 SDK v17.1.0 from Nordic Semiconductor.",
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::Yes
+        );
+        
+        if (reply == QMessageBox::Yes) {
+            downloadNrf52Sdk();
+            allLibrariesPresent = allLibrariesPresent && m_downloadSuccess;
+        } else {
+            QMessageBox::warning(
+                m_parent,
+                "SDK Required",
+                "nRF52 SDK is required for this application to function properly.\n"
+                "Please install it manually or restart the application to download it."
+            );
+            allLibrariesPresent = false;
+        }
+    }
+    
+    return allLibrariesPresent;
 }
 
 bool LibraryChecker::isLvglPresent()
@@ -92,9 +119,38 @@ bool LibraryChecker::isLvglPresent()
     return true;
 }
 
+bool LibraryChecker::isNrf52SdkPresent()
+{
+    QString librariesPath = getLibrariesPath();
+    QDir nrfDir(librariesPath + "/" + NRF52_SDK_FOLDER);
+    
+    // Check if nRF52 SDK directory exists and contains key files
+    if (!nrfDir.exists()) {
+        return false;
+    }
+    
+    // Check for key nRF52 SDK files to ensure it's a complete installation
+    QStringList keyFiles = {
+        "components/softdevice/s132/headers/nrf_sdm.h",
+        "components/libraries/util/nordic_common.h",
+        "modules/nrfx/nrfx.h",
+        "components/boards/boards.h"
+    };
+    
+    for (const QString& file : keyFiles) {
+        if (!QFile::exists(nrfDir.absoluteFilePath(file))) {
+            qDebug() << "Missing nRF52 SDK file:" << file;
+            return false;
+        }
+    }
+    
+    return true;
+}
+
 void LibraryChecker::downloadLvgl()
 {
     m_downloadSuccess = false;
+    m_currentDownloadType = DownloadType::LVGL;
     
     // Create progress dialog
     m_progressDialog = new QProgressDialog(
@@ -148,6 +204,63 @@ void LibraryChecker::downloadLvgl()
     loop.exec();
 }
 
+void LibraryChecker::downloadNrf52Sdk()
+{
+    m_downloadSuccess = false;
+    m_currentDownloadType = DownloadType::NRF52_SDK;
+    
+    // Create progress dialog
+    m_progressDialog = new QProgressDialog(
+        "Downloading nRF52 SDK...",
+        "Cancel",
+        0, 100,
+        m_parent
+    );
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setAutoClose(true);
+    m_progressDialog->setAutoReset(true);
+    
+    // Create temporary file for download
+    QTemporaryFile* tempFile = new QTemporaryFile(this);
+    tempFile->setFileTemplate(QDir::tempPath() + "/nrf5_sdk_XXXXXX.zip");
+    
+    if (!tempFile->open()) {
+        QMessageBox::critical(m_parent, "Error", "Failed to create temporary file for download.");
+        return;
+    }
+    
+    m_tempFilePath = tempFile->fileName();
+    tempFile->close();
+    
+    // Start download
+    QNetworkRequest request{QUrl(NRF52_SDK_URL)};
+    request.setHeader(QNetworkRequest::UserAgentHeader, "LCD-GUI-Tester/1.0");
+    
+    m_currentReply = m_networkManager->get(request);
+    
+    connect(m_currentReply, &QNetworkReply::downloadProgress,
+            this, &LibraryChecker::onDownloadProgress);
+    connect(m_currentReply, &QNetworkReply::finished,
+            this, &LibraryChecker::onDownloadFinished);
+    connect(m_currentReply, &QNetworkReply::errorOccurred,
+            this, &LibraryChecker::onDownloadError);
+    
+    // Connect cancel button
+    connect(m_progressDialog, &QProgressDialog::canceled, [this]() {
+        if (m_currentReply) {
+            m_currentReply->abort();
+        }
+    });
+    
+    m_progressDialog->show();
+    
+    // Block until download completes using event loop
+    QEventLoop loop;
+    connect(m_currentReply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    connect(m_progressDialog, &QProgressDialog::canceled, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+
 void LibraryChecker::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
 {
     if (m_progressDialog && bytesTotal > 0) {
@@ -158,7 +271,10 @@ void LibraryChecker::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
         QString sizeText = QString("Downloaded %1 KB of %2 KB")
                           .arg(bytesReceived / 1024)
                           .arg(bytesTotal / 1024);
-        m_progressDialog->setLabelText("Downloading LVGL library...\n" + sizeText);
+        
+        // Determine what we're downloading based on current label
+        QString baseLabel = m_progressDialog->labelText().split('\n').first();
+        m_progressDialog->setLabelText(baseLabel + "\n" + sizeText);
     }
 }
 
@@ -183,24 +299,36 @@ void LibraryChecker::onDownloadFinished()
             QString librariesPath = getLibrariesPath();
             QDir().mkpath(librariesPath);
             
-            if (extractZipFile(m_tempFilePath, librariesPath)) {
+            // Determine target folder and message based on download type
+            QString targetFolder;
+            QString successMsg;
+            QString failureMsg;
+            
+            if (m_currentDownloadType == DownloadType::LVGL) {
+                targetFolder = LVGL_FOLDER;
+                successMsg = "LVGL library has been successfully downloaded and extracted.";
+                failureMsg = "Failed to extract LVGL library. Please try again or install manually.";
+            } else if (m_currentDownloadType == DownloadType::NRF52_SDK) {
+                targetFolder = NRF52_SDK_FOLDER;
+                successMsg = "nRF52 SDK has been successfully downloaded and extracted.";
+                failureMsg = "Failed to extract nRF52 SDK. Please try again or install manually.";
+            }
+            
+            if (extractZipFile(m_tempFilePath, librariesPath, targetFolder)) {
                 m_downloadSuccess = true;
                 QMessageBox::information(
                     m_parent,
                     "Download Complete",
-                    "LVGL library has been successfully downloaded and extracted."
+                    successMsg
                 );
             } else {
                 m_downloadSuccess = false;
                 QMessageBox::critical(
                     m_parent,
                     "Extraction Failed",
-                    "Failed to extract LVGL library. Please try again or install manually."
+                    failureMsg
                 );
             }
-            
-            // Clean up temporary file
-            QFile::remove(m_tempFilePath);
         } else {
             m_downloadSuccess = false;
             QMessageBox::critical(m_parent, "Error", "Failed to save downloaded file.");
@@ -230,7 +358,7 @@ void LibraryChecker::onDownloadError(QNetworkReply::NetworkError error)
     }
 }
 
-bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extractPath)
+bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extractPath, const QString& targetFolder)
 {
     // Use system unzip command for simplicity
     QProcess unzipProcess;
@@ -238,25 +366,43 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
     arguments << zipPath << "-d" << extractPath;
     
     unzipProcess.start("unzip", arguments);
-    unzipProcess.waitForFinished(30000); // 30 second timeout
+    unzipProcess.waitForFinished(60000); // 60 second timeout for larger files
     
     if (unzipProcess.exitCode() == 0) {
-        // Rename the extracted folder to just "lvgl"
         QDir extractDir(extractPath);
         QStringList entries = extractDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         
+        // Handle different extraction patterns based on target folder
         for (const QString& entry : entries) {
-            if (entry.startsWith("lvgl-")) {
-                QString oldPath = extractDir.absoluteFilePath(entry);
-                QString newPath = extractDir.absoluteFilePath(LVGL_FOLDER);
-                
-                // Remove existing lvgl folder if it exists
+            QString oldPath = extractDir.absoluteFilePath(entry);
+            QString newPath;
+            bool shouldRename = false;
+            
+            if (targetFolder == LVGL_FOLDER && entry.startsWith("lvgl-")) {
+                newPath = extractDir.absoluteFilePath(LVGL_FOLDER);
+                shouldRename = true;
+            } else if (targetFolder == NRF52_SDK_FOLDER && (entry.startsWith("nRF5_SDK_") || entry.startsWith("nrf5_sdk_") || entry == "nRF5_SDK_17.1.0_ddde560")) {
+                newPath = extractDir.absoluteFilePath(NRF52_SDK_FOLDER);
+                shouldRename = true;
+            }
+            
+            if (shouldRename) {
+                // Remove existing folder if it exists
                 QDir(newPath).removeRecursively();
                 
                 // Rename the extracted folder
-                return QDir().rename(oldPath, newPath);
+                bool success = QDir().rename(oldPath, newPath);
+                
+                // Delete the .zip file as requested
+                QFile::remove(zipPath);
+                
+                return success;
             }
         }
+        
+        // If no rename needed (direct extraction), just delete the zip
+        QFile::remove(zipPath);
+        return true;
     }
     
     qDebug() << "Unzip process output:" << unzipProcess.readAllStandardOutput();

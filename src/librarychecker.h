@@ -26,11 +26,15 @@ private slots:
 private:
     bool isLvglPresent();
     void downloadLvgl();
-    bool extractZipFile(const QString& zipPath, const QString& extractPath);
+    bool isNrf52SdkPresent();
+    void downloadNrf52Sdk();
+    bool extractZipFile(const QString& zipPath, const QString& extractPath, const QString& targetFolder = "");
     QString getLibrariesPath();
     
     static constexpr const char* LVGL_URL = "https://github.com/lvgl/lvgl/archive/refs/tags/v9.3.0.zip";
     static constexpr const char* LVGL_FOLDER = "lvgl";
+    static constexpr const char* NRF52_SDK_URL = "https://nsscprodmedia.blob.core.windows.net/prod/software-and-other-downloads/sdks/nrf5/binaries/nrf5_sdk_17.1.0_ddde560.zip";
+    static constexpr const char* NRF52_SDK_FOLDER = "nrf5_sdk";
     
     QWidget* m_parent;
     QNetworkAccessManager* m_networkManager;
@@ -38,4 +42,5 @@ private:
     QProgressDialog* m_progressDialog;
     QString m_tempFilePath;
     bool m_downloadSuccess;
+    enum class DownloadType { LVGL, NRF52_SDK } m_currentDownloadType;
 };

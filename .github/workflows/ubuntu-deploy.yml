@@ -34,11 +34,20 @@ jobs:
         cp build/lcd-gui-tester lcd-gui-tester-linux/
         cp README.md lcd-gui-tester-linux/
         
-        # Find and copy Qt6 libraries
+        # Find and copy Qt6 libraries and their dependencies
         echo "Bundling Qt6 libraries..."
         ldd build/lcd-gui-tester | grep -E "(Qt6|libQt)" | awk '{print $3}' | while read lib; do
           if [[ -f "$lib" ]]; then
-            echo "Copying $lib"
+            echo "Copying Qt library: $lib"
+            cp "$lib" lcd-gui-tester-linux/lib/
+          fi
+        done
+        
+        # Also copy any dbus libraries that Qt6 might depend on
+        echo "Bundling dbus dependencies..."
+        ldd build/lcd-gui-tester | grep -E "(dbus|libdbus)" | awk '{print $3}' | while read lib; do
+          if [[ -f "$lib" ]]; then
+            echo "Copying dbus library: $lib"
             cp "$lib" lcd-gui-tester-linux/lib/
           fi
         done
