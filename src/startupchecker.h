@@ -23,11 +23,12 @@ public:
         bool needsNrf52Sdk = false;
         bool needsArmGnuToolchain = false;
         bool needsNrf52Firmware = false;
+        bool needsCMake = false;
         QStringList missingPackages;
 
         bool hasAnyMissing() const {
             return needsLVGL || needsPython || needsPythonPackages ||
-                   needsNrf52Sdk || needsArmGnuToolchain || needsNrf52Firmware;
+                   needsNrf52Sdk || needsArmGnuToolchain || needsNrf52Firmware || needsCMake;
         }
     };
     

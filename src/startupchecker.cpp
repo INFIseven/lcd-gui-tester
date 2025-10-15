@@ -102,6 +102,18 @@ StartupChecker::MissingComponents StartupChecker::checkAllComponents()
         qDebug() << "nRF52 LCD Tester Firmware found";
     }
 
+    // Check CMake
+    QString cmakePath = appDir + "/libraries/cmake/bin/cmake";
+#ifdef Q_OS_WIN
+    cmakePath += ".exe";
+#endif
+    if (!QFile::exists(cmakePath)) {
+        missing.needsCMake = true;
+        qDebug() << "CMake is missing";
+    } else {
+        qDebug() << "CMake found";
+    }
+
     // Check embedded Python
     if (!m_embeddedPython->isEmbeddedPythonAvailable()) {
         missing.needsPython = true;
@@ -164,6 +176,10 @@ bool StartupChecker::requestUserPermission(const MissingComponents& missing)
         missingItems.append("• nRF52 LCD Tester Firmware (~1MB)");
     }
 
+    if (missing.needsCMake) {
+        missingItems.append("• CMake (~40MB)");
+    }
+
     if (missing.needsPython) {
         missingItems.append("• Embedded Python distribution (~25MB)");
     }
@@ -191,9 +207,9 @@ bool StartupChecker::downloadAndSetupComponents(const MissingComponents& missing
 {
     bool allSuccess = true;
 
-    // Download libraries (LVGL, nRF52 SDK, ARM Toolchain, Firmware) if any are needed
+    // Download libraries (LVGL, nRF52 SDK, ARM Toolchain, Firmware, CMake) if any are needed
     if (missing.needsLVGL || missing.needsNrf52Sdk ||
-        missing.needsArmGnuToolchain || missing.needsNrf52Firmware) {
+        missing.needsArmGnuToolchain || missing.needsNrf52Firmware || missing.needsCMake) {
         qDebug() << "Setting up required libraries...";
         if (!m_libraryChecker->checkAndDownloadLibraries()) {
             qDebug() << "Failed to setup some libraries";

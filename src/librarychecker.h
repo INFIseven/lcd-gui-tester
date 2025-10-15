@@ -32,7 +32,10 @@ private:
     void downloadArmGnuToolchain();
     bool isNrf52FirmwarePresent();
     void downloadNrf52Firmware();
+    bool isCMakePresent();
+    void downloadCMake();
     QString getNrf52FirmwareLatestReleaseUrl();
+    QString getCMakeUrl();
     bool extractZipFile(const QString& zipPath, const QString& extractPath, const QString& targetFolder = "");
     bool extractTarFile(const QString& tarPath, const QString& extractPath, const QString& targetFolder = "");
     QString getLibrariesPath();
@@ -48,6 +51,9 @@ private:
     static constexpr const char* NRF52_FIRMWARE_TAGS_API_URL = "https://api.github.com/repos/INFIseven/nrf52-lcd-tester-fw/tags";
     static constexpr const char* NRF52_FIRMWARE_REPO_URL = "https://github.com/INFIseven/nrf52-lcd-tester-fw/archive/refs/tags/";
     static constexpr const char* NRF52_FIRMWARE_FOLDER = "nrf52-lcd-tester-fw";
+    static constexpr const char* CMAKE_VERSION = "4.1.2";
+    static constexpr const char* CMAKE_BASE_URL = "https://github.com/Kitware/CMake/releases/download/v4.1.2/cmake-4.1.2-";
+    static constexpr const char* CMAKE_FOLDER = "cmake";
 
     QWidget* m_parent;
     QNetworkAccessManager* m_networkManager;
@@ -55,5 +61,5 @@ private:
     QProgressDialog* m_progressDialog;
     QString m_tempFilePath;
     bool m_downloadSuccess;
-    enum class DownloadType { LVGL, NRF52_SDK, ARM_GNU_TOOLCHAIN, NRF52_FIRMWARE } m_currentDownloadType;
+    enum class DownloadType { LVGL, NRF52_SDK, ARM_GNU_TOOLCHAIN, NRF52_FIRMWARE, CMAKE } m_currentDownloadType;
 };

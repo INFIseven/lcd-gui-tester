@@ -142,6 +142,31 @@ bool LibraryChecker::checkAndDownloadLibraries()
         }
     }
 
+    if (!isCMakePresent()) {
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            m_parent,
+            "Missing CMake",
+            "CMake is not found and is required for building firmware.\n"
+            "Would you like to download it now?\n\n"
+            "This will download CMake v" + QString(CMAKE_VERSION) + " from GitHub.",
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::Yes
+        );
+
+        if (reply == QMessageBox::Yes) {
+            downloadCMake();
+            allLibrariesPresent = allLibrariesPresent && m_downloadSuccess;
+        } else {
+            QMessageBox::warning(
+                m_parent,
+                "CMake Required",
+                "CMake is required for building firmware.\n"
+                "Please install it manually or restart the application to download it."
+            );
+            allLibrariesPresent = false;
+        }
+    }
+
     return allLibrariesPresent;
 }
 
@@ -256,6 +281,31 @@ bool LibraryChecker::isNrf52FirmwarePresent()
     }
 
     qDebug() << "Found nRF52 firmware files:" << hexFiles;
+    return true;
+}
+
+bool LibraryChecker::isCMakePresent()
+{
+    QString librariesPath = getLibrariesPath();
+    QDir cmakeDir(librariesPath + "/" + CMAKE_FOLDER);
+
+    // Check if CMake directory exists and contains key files
+    if (!cmakeDir.exists()) {
+        return false;
+    }
+
+    // Check for CMake executable
+    QString cmakeExe = "bin/cmake";
+#ifdef Q_OS_WIN
+    cmakeExe += ".exe";
+#endif
+
+    if (!QFile::exists(cmakeDir.absoluteFilePath(cmakeExe))) {
+        qDebug() << "Missing CMake executable:" << cmakeExe;
+        return false;
+    }
+
+    qDebug() << "CMake found";
     return true;
 }
 
@@ -545,6 +595,65 @@ void LibraryChecker::downloadNrf52Firmware()
     loop.exec();
 }
 
+void LibraryChecker::downloadCMake()
+{
+    m_downloadSuccess = false;
+    m_currentDownloadType = DownloadType::CMAKE;
+
+    // Create progress dialog
+    m_progressDialog = new QProgressDialog(
+        "Downloading CMake...",
+        "Cancel",
+        0, 100,
+        m_parent
+    );
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setAutoClose(true);
+    m_progressDialog->setAutoReset(true);
+
+    // Create temporary file for download
+    QTemporaryFile* tempFile = new QTemporaryFile(this);
+    QString cmakeUrl = getCMakeUrl();
+    QString fileExtension = cmakeUrl.endsWith(".zip") ? ".zip" : ".tar.gz";
+    tempFile->setFileTemplate(QDir::tempPath() + "/cmake_XXXXXX" + fileExtension);
+
+    if (!tempFile->open()) {
+        QMessageBox::critical(m_parent, "Error", "Failed to create temporary file for download.");
+        return;
+    }
+
+    m_tempFilePath = tempFile->fileName();
+    tempFile->close();
+
+    // Start download
+    QNetworkRequest request{QUrl(cmakeUrl)};
+    request.setHeader(QNetworkRequest::UserAgentHeader, "LCD-GUI-Tester/1.0");
+
+    m_currentReply = m_networkManager->get(request);
+
+    connect(m_currentReply, &QNetworkReply::downloadProgress,
+            this, &LibraryChecker::onDownloadProgress);
+    connect(m_currentReply, &QNetworkReply::finished,
+            this, &LibraryChecker::onDownloadFinished);
+    connect(m_currentReply, &QNetworkReply::errorOccurred,
+            this, &LibraryChecker::onDownloadError);
+
+    // Connect cancel button
+    connect(m_progressDialog, &QProgressDialog::canceled, [this]() {
+        if (m_currentReply) {
+            m_currentReply->abort();
+        }
+    });
+
+    m_progressDialog->show();
+
+    // Block until download completes using event loop
+    QEventLoop loop;
+    connect(m_currentReply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    connect(m_progressDialog, &QProgressDialog::canceled, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+
 void LibraryChecker::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
 {
     if (m_progressDialog && bytesTotal > 0) {
@@ -604,12 +713,17 @@ void LibraryChecker::onDownloadFinished()
                 targetFolder = NRF52_FIRMWARE_FOLDER;
                 successMsg = "nRF52 LCD Tester Firmware has been successfully downloaded and extracted.";
                 failureMsg = "Failed to extract nRF52 LCD Tester Firmware. Please try again or install manually.";
+            } else if (m_currentDownloadType == DownloadType::CMAKE) {
+                targetFolder = CMAKE_FOLDER;
+                successMsg = "CMake has been successfully downloaded and extracted.";
+                failureMsg = "Failed to extract CMake. Please try again or install manually.";
             }
-            
+
             bool extractionSuccess = false;
-            
+
             // Choose extraction method based on file type and download type
-            if (m_currentDownloadType == DownloadType::ARM_GNU_TOOLCHAIN && m_tempFilePath.endsWith(".tar.xz")) {
+            if ((m_currentDownloadType == DownloadType::ARM_GNU_TOOLCHAIN && m_tempFilePath.endsWith(".tar.xz")) ||
+                (m_currentDownloadType == DownloadType::CMAKE && m_tempFilePath.endsWith(".tar.gz"))) {
                 extractionSuccess = extractTarFile(m_tempFilePath, librariesPath, targetFolder);
             } else {
                 extractionSuccess = extractZipFile(m_tempFilePath, librariesPath, targetFolder);
@@ -688,6 +802,9 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
             } else if (targetFolder == NRF52_FIRMWARE_FOLDER && entry.startsWith("nrf52-lcd-tester-fw")) {
                 newPath = extractDir.absoluteFilePath(NRF52_FIRMWARE_FOLDER);
                 shouldRename = true;
+            } else if (targetFolder == CMAKE_FOLDER && entry.startsWith("cmake-")) {
+                newPath = extractDir.absoluteFilePath(CMAKE_FOLDER);
+                shouldRename = true;
             }
 
             if (shouldRename) {
@@ -737,6 +854,9 @@ bool LibraryChecker::extractTarFile(const QString& tarPath, const QString& extra
             if (targetFolder == ARM_GNU_TOOLCHAIN_FOLDER && entry.startsWith("arm-gnu-toolchain-")) {
                 newPath = extractDir.absoluteFilePath(ARM_GNU_TOOLCHAIN_FOLDER);
                 shouldRename = true;
+            } else if (targetFolder == CMAKE_FOLDER && entry.startsWith("cmake-")) {
+                newPath = extractDir.absoluteFilePath(CMAKE_FOLDER);
+                shouldRename = true;
             }
             
             if (shouldRename) {
@@ -767,7 +887,7 @@ QString LibraryChecker::getArmGnuToolchainUrl()
 {
     QString baseUrl = ARM_GNU_TOOLCHAIN_BASE_URL;
     QString platformSuffix;
-    
+
 #ifdef Q_OS_WIN
     // Windows x64
     platformSuffix = "mingw-w64-i686-arm-none-eabi.zip";
@@ -788,7 +908,29 @@ QString LibraryChecker::getArmGnuToolchainUrl()
     // Fallback to Linux
     platformSuffix = "x86_64-arm-none-eabi.tar.xz";
 #endif
-    
+
+    return baseUrl + platformSuffix;
+}
+
+QString LibraryChecker::getCMakeUrl()
+{
+    QString baseUrl = CMAKE_BASE_URL;
+    QString platformSuffix;
+
+#ifdef Q_OS_WIN
+    // Windows x64
+    platformSuffix = "windows-x86_64.zip";
+#elif defined(Q_OS_LINUX)
+    // Linux x86_64
+    platformSuffix = "linux-x86_64.tar.gz";
+#elif defined(Q_OS_MACOS)
+    // macOS universal binary
+    platformSuffix = "macos-universal.tar.gz";
+#else
+    // Fallback to Linux
+    platformSuffix = "linux-x86_64.tar.gz";
+#endif
+
     return baseUrl + platformSuffix;
 }
 
