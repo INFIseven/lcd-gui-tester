@@ -10,6 +10,10 @@
 #include <QEventLoop>
 #include <QTimer>
 #include <QDebug>
+#include <QSysInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 LibraryChecker::LibraryChecker(QWidget* parent)
     : QObject(parent)
@@ -88,6 +92,56 @@ bool LibraryChecker::checkAndDownloadLibraries()
         }
     }
     
+    if (!isArmGnuToolchainPresent()) {
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            m_parent,
+            "Missing Toolchain",
+            "ARM GNU Toolchain is not found and is required for this application.\n"
+            "Would you like to download it now?\n\n"
+            "This will download ARM GNU Toolchain v" + QString(ARM_GNU_TOOLCHAIN_VERSION) + " from ARM Developer.",
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::Yes
+        );
+
+        if (reply == QMessageBox::Yes) {
+            downloadArmGnuToolchain();
+            allLibrariesPresent = allLibrariesPresent && m_downloadSuccess;
+        } else {
+            QMessageBox::warning(
+                m_parent,
+                "Toolchain Required",
+                "ARM GNU Toolchain is required for this application to function properly.\n"
+                "Please install it manually or restart the application to download it."
+            );
+            allLibrariesPresent = false;
+        }
+    }
+
+    if (!isNrf52FirmwarePresent()) {
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            m_parent,
+            "Missing Firmware",
+            "nRF52 LCD Tester Firmware is not found and is required for this application.\n"
+            "Would you like to download it now?\n\n"
+            "This will download the latest release from GitHub.",
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::Yes
+        );
+
+        if (reply == QMessageBox::Yes) {
+            downloadNrf52Firmware();
+            allLibrariesPresent = allLibrariesPresent && m_downloadSuccess;
+        } else {
+            QMessageBox::warning(
+                m_parent,
+                "Firmware Required",
+                "nRF52 LCD Tester Firmware is required for this application to function properly.\n"
+                "Please install it manually or restart the application to download it."
+            );
+            allLibrariesPresent = false;
+        }
+    }
+
     return allLibrariesPresent;
 }
 
@@ -144,6 +198,64 @@ bool LibraryChecker::isNrf52SdkPresent()
         }
     }
     
+    return true;
+}
+
+bool LibraryChecker::isArmGnuToolchainPresent()
+{
+    QString librariesPath = getLibrariesPath();
+    QDir toolchainDir(librariesPath + "/" + ARM_GNU_TOOLCHAIN_FOLDER);
+
+    // Check if ARM GNU Toolchain directory exists and contains key files
+    if (!toolchainDir.exists()) {
+        return false;
+    }
+
+    // Check for key ARM GNU Toolchain files to ensure it's a complete installation
+    QStringList keyFiles = {
+        "bin/arm-none-eabi-gcc",
+        "bin/arm-none-eabi-g++",
+        "bin/arm-none-eabi-as",
+        "bin/arm-none-eabi-ld"
+    };
+
+    // On Windows, add .exe extension
+#ifdef Q_OS_WIN
+    for (QString& file : keyFiles) {
+        file += ".exe";
+    }
+#endif
+
+    for (const QString& file : keyFiles) {
+        if (!QFile::exists(toolchainDir.absoluteFilePath(file))) {
+            qDebug() << "Missing ARM GNU Toolchain file:" << file;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool LibraryChecker::isNrf52FirmwarePresent()
+{
+    QString librariesPath = getLibrariesPath();
+    QDir firmwareDir(librariesPath + "/" + NRF52_FIRMWARE_FOLDER);
+
+    // Check if nRF52 firmware directory exists and contains key files
+    if (!firmwareDir.exists()) {
+        return false;
+    }
+
+    // Check for key firmware files to ensure it's a complete installation
+    // Look for hex files in the directory
+    QStringList hexFiles = firmwareDir.entryList(QStringList() << "*.hex", QDir::Files);
+
+    if (hexFiles.isEmpty()) {
+        qDebug() << "Missing nRF52 firmware hex file";
+        return false;
+    }
+
+    qDebug() << "Found nRF52 firmware files:" << hexFiles;
     return true;
 }
 
@@ -261,6 +373,178 @@ void LibraryChecker::downloadNrf52Sdk()
     loop.exec();
 }
 
+void LibraryChecker::downloadArmGnuToolchain()
+{
+    m_downloadSuccess = false;
+    m_currentDownloadType = DownloadType::ARM_GNU_TOOLCHAIN;
+    
+    // Create progress dialog
+    m_progressDialog = new QProgressDialog(
+        "Downloading ARM GNU Toolchain...",
+        "Cancel",
+        0, 100,
+        m_parent
+    );
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setAutoClose(true);
+    m_progressDialog->setAutoReset(true);
+    
+    // Create temporary file for download
+    QTemporaryFile* tempFile = new QTemporaryFile(this);
+    QString toolchainUrl = getArmGnuToolchainUrl();
+    QString fileExtension = toolchainUrl.endsWith(".zip") ? ".zip" : ".tar.xz";
+    tempFile->setFileTemplate(QDir::tempPath() + "/arm_gnu_toolchain_XXXXXX" + fileExtension);
+    
+    if (!tempFile->open()) {
+        QMessageBox::critical(m_parent, "Error", "Failed to create temporary file for download.");
+        return;
+    }
+    
+    m_tempFilePath = tempFile->fileName();
+    tempFile->close();
+    
+    // Start download
+    QNetworkRequest request{QUrl(toolchainUrl)};
+    request.setHeader(QNetworkRequest::UserAgentHeader, "LCD-GUI-Tester/1.0");
+    
+    m_currentReply = m_networkManager->get(request);
+    
+    connect(m_currentReply, &QNetworkReply::downloadProgress,
+            this, &LibraryChecker::onDownloadProgress);
+    connect(m_currentReply, &QNetworkReply::finished,
+            this, &LibraryChecker::onDownloadFinished);
+    connect(m_currentReply, &QNetworkReply::errorOccurred,
+            this, &LibraryChecker::onDownloadError);
+    
+    // Connect cancel button
+    connect(m_progressDialog, &QProgressDialog::canceled, [this]() {
+        if (m_currentReply) {
+            m_currentReply->abort();
+        }
+    });
+    
+    m_progressDialog->show();
+    
+    // Block until download completes using event loop
+    QEventLoop loop;
+    connect(m_currentReply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    connect(m_progressDialog, &QProgressDialog::canceled, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+
+QString LibraryChecker::getNrf52FirmwareLatestReleaseUrl()
+{
+    // Query GitHub API for tags to get the latest tag
+    QNetworkRequest request{QUrl(NRF52_FIRMWARE_TAGS_API_URL)};
+    request.setHeader(QNetworkRequest::UserAgentHeader, "LCD-GUI-Tester/1.0");
+
+    QNetworkReply* reply = m_networkManager->get(request);
+
+    // Block until request completes
+    QEventLoop loop;
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    QString downloadUrl;
+
+    if (reply->error() == QNetworkReply::NoError) {
+        QByteArray responseData = reply->readAll();
+        QJsonDocument jsonDoc = QJsonDocument::fromJson(responseData);
+
+        if (jsonDoc.isArray()) {
+            QJsonArray tagsArray = jsonDoc.array();
+
+            // Get the first tag (latest)
+            if (!tagsArray.isEmpty()) {
+                QJsonObject latestTag = tagsArray[0].toObject();
+                QString tagName = latestTag["name"].toString();
+
+                if (!tagName.isEmpty()) {
+                    // Construct download URL: https://github.com/INFIseven/nrf52-lcd-tester-fw/archive/refs/tags/{tag}.zip
+                    downloadUrl = QString(NRF52_FIRMWARE_REPO_URL) + tagName + ".zip";
+                    qDebug() << "Found latest firmware tag:" << tagName << "URL:" << downloadUrl;
+                }
+            }
+        }
+    } else {
+        qDebug() << "Failed to fetch tags info:" << reply->errorString();
+    }
+
+    reply->deleteLater();
+    return downloadUrl;
+}
+
+void LibraryChecker::downloadNrf52Firmware()
+{
+    m_downloadSuccess = false;
+    m_currentDownloadType = DownloadType::NRF52_FIRMWARE;
+
+    // Get the latest release URL
+    QString firmwareUrl = getNrf52FirmwareLatestReleaseUrl();
+
+    if (firmwareUrl.isEmpty()) {
+        QMessageBox::critical(
+            m_parent,
+            "Error",
+            "Failed to retrieve the latest firmware release from GitHub.\n"
+            "Please check your internet connection or download manually from:\n"
+            "https://github.com/INFIseven/nrf52-lcd-tester-fw/releases"
+        );
+        return;
+    }
+
+    // Create progress dialog
+    m_progressDialog = new QProgressDialog(
+        "Downloading nRF52 LCD Tester Firmware...",
+        "Cancel",
+        0, 100,
+        m_parent
+    );
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setAutoClose(true);
+    m_progressDialog->setAutoReset(true);
+
+    // Create temporary file for download
+    QTemporaryFile* tempFile = new QTemporaryFile(this);
+    tempFile->setFileTemplate(QDir::tempPath() + "/nrf52_firmware_XXXXXX.zip");
+
+    if (!tempFile->open()) {
+        QMessageBox::critical(m_parent, "Error", "Failed to create temporary file for download.");
+        return;
+    }
+
+    m_tempFilePath = tempFile->fileName();
+    tempFile->close();
+
+    // Start download
+    QNetworkRequest request{QUrl(firmwareUrl)};
+    request.setHeader(QNetworkRequest::UserAgentHeader, "LCD-GUI-Tester/1.0");
+
+    m_currentReply = m_networkManager->get(request);
+
+    connect(m_currentReply, &QNetworkReply::downloadProgress,
+            this, &LibraryChecker::onDownloadProgress);
+    connect(m_currentReply, &QNetworkReply::finished,
+            this, &LibraryChecker::onDownloadFinished);
+    connect(m_currentReply, &QNetworkReply::errorOccurred,
+            this, &LibraryChecker::onDownloadError);
+
+    // Connect cancel button
+    connect(m_progressDialog, &QProgressDialog::canceled, [this]() {
+        if (m_currentReply) {
+            m_currentReply->abort();
+        }
+    });
+
+    m_progressDialog->show();
+
+    // Block until download completes using event loop
+    QEventLoop loop;
+    connect(m_currentReply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    connect(m_progressDialog, &QProgressDialog::canceled, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+
 void LibraryChecker::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
 {
     if (m_progressDialog && bytesTotal > 0) {
@@ -303,7 +587,7 @@ void LibraryChecker::onDownloadFinished()
             QString targetFolder;
             QString successMsg;
             QString failureMsg;
-            
+
             if (m_currentDownloadType == DownloadType::LVGL) {
                 targetFolder = LVGL_FOLDER;
                 successMsg = "LVGL library has been successfully downloaded and extracted.";
@@ -312,9 +596,26 @@ void LibraryChecker::onDownloadFinished()
                 targetFolder = NRF52_SDK_FOLDER;
                 successMsg = "nRF52 SDK has been successfully downloaded and extracted.";
                 failureMsg = "Failed to extract nRF52 SDK. Please try again or install manually.";
+            } else if (m_currentDownloadType == DownloadType::ARM_GNU_TOOLCHAIN) {
+                targetFolder = ARM_GNU_TOOLCHAIN_FOLDER;
+                successMsg = "ARM GNU Toolchain has been successfully downloaded and extracted.";
+                failureMsg = "Failed to extract ARM GNU Toolchain. Please try again or install manually.";
+            } else if (m_currentDownloadType == DownloadType::NRF52_FIRMWARE) {
+                targetFolder = NRF52_FIRMWARE_FOLDER;
+                successMsg = "nRF52 LCD Tester Firmware has been successfully downloaded and extracted.";
+                failureMsg = "Failed to extract nRF52 LCD Tester Firmware. Please try again or install manually.";
             }
             
-            if (extractZipFile(m_tempFilePath, librariesPath, targetFolder)) {
+            bool extractionSuccess = false;
+            
+            // Choose extraction method based on file type and download type
+            if (m_currentDownloadType == DownloadType::ARM_GNU_TOOLCHAIN && m_tempFilePath.endsWith(".tar.xz")) {
+                extractionSuccess = extractTarFile(m_tempFilePath, librariesPath, targetFolder);
+            } else {
+                extractionSuccess = extractZipFile(m_tempFilePath, librariesPath, targetFolder);
+            }
+            
+            if (extractionSuccess) {
                 m_downloadSuccess = true;
                 QMessageBox::information(
                     m_parent,
@@ -377,25 +678,28 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
             QString oldPath = extractDir.absoluteFilePath(entry);
             QString newPath;
             bool shouldRename = false;
-            
+
             if (targetFolder == LVGL_FOLDER && entry.startsWith("lvgl-")) {
                 newPath = extractDir.absoluteFilePath(LVGL_FOLDER);
                 shouldRename = true;
             } else if (targetFolder == NRF52_SDK_FOLDER && (entry.startsWith("nRF5_SDK_") || entry.startsWith("nrf5_sdk_") || entry == "nRF5_SDK_17.1.0_ddde560")) {
                 newPath = extractDir.absoluteFilePath(NRF52_SDK_FOLDER);
                 shouldRename = true;
+            } else if (targetFolder == NRF52_FIRMWARE_FOLDER && entry.startsWith("nrf52-lcd-tester-fw")) {
+                newPath = extractDir.absoluteFilePath(NRF52_FIRMWARE_FOLDER);
+                shouldRename = true;
             }
-            
+
             if (shouldRename) {
                 // Remove existing folder if it exists
                 QDir(newPath).removeRecursively();
-                
+
                 // Rename the extracted folder
                 bool success = QDir().rename(oldPath, newPath);
-                
+
                 // Delete the .zip file as requested
                 QFile::remove(zipPath);
-                
+
                 return success;
             }
         }
@@ -408,6 +712,84 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
     qDebug() << "Unzip process output:" << unzipProcess.readAllStandardOutput();
     qDebug() << "Unzip process errors:" << unzipProcess.readAllStandardError();
     return false;
+}
+
+bool LibraryChecker::extractTarFile(const QString& tarPath, const QString& extractPath, const QString& targetFolder)
+{
+    // Use system tar command for .tar.xz extraction
+    QProcess tarProcess;
+    QStringList arguments;
+    arguments << "-xf" << tarPath << "-C" << extractPath;
+    
+    tarProcess.start("tar", arguments);
+    tarProcess.waitForFinished(120000); // 120 second timeout for large files
+    
+    if (tarProcess.exitCode() == 0) {
+        QDir extractDir(extractPath);
+        QStringList entries = extractDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        
+        // Handle different extraction patterns based on target folder
+        for (const QString& entry : entries) {
+            QString oldPath = extractDir.absoluteFilePath(entry);
+            QString newPath;
+            bool shouldRename = false;
+            
+            if (targetFolder == ARM_GNU_TOOLCHAIN_FOLDER && entry.startsWith("arm-gnu-toolchain-")) {
+                newPath = extractDir.absoluteFilePath(ARM_GNU_TOOLCHAIN_FOLDER);
+                shouldRename = true;
+            }
+            
+            if (shouldRename) {
+                // Remove existing folder if it exists
+                QDir(newPath).removeRecursively();
+                
+                // Rename the extracted folder
+                bool success = QDir().rename(oldPath, newPath);
+                
+                // Delete the .tar.xz file as requested
+                QFile::remove(tarPath);
+                
+                return success;
+            }
+        }
+        
+        // If no rename needed (direct extraction), just delete the tar file
+        QFile::remove(tarPath);
+        return true;
+    }
+    
+    qDebug() << "Tar process output:" << tarProcess.readAllStandardOutput();
+    qDebug() << "Tar process errors:" << tarProcess.readAllStandardError();
+    return false;
+}
+
+QString LibraryChecker::getArmGnuToolchainUrl()
+{
+    QString baseUrl = ARM_GNU_TOOLCHAIN_BASE_URL;
+    QString platformSuffix;
+    
+#ifdef Q_OS_WIN
+    // Windows x64
+    platformSuffix = "mingw-w64-i686-arm-none-eabi.zip";
+#elif defined(Q_OS_LINUX)
+    // Linux x86_64
+    platformSuffix = "x86_64-arm-none-eabi.tar.xz";
+#elif defined(Q_OS_MACOS)
+    // Detect macOS architecture
+    QString architecture = QSysInfo::currentCpuArchitecture();
+    if (architecture == "arm64" || architecture == "aarch64") {
+        // macOS ARM64
+        platformSuffix = "darwin-arm64-arm-none-eabi.tar.xz";
+    } else {
+        // macOS Intel
+        platformSuffix = "darwin-x86_64-arm-none-eabi.tar.xz";
+    }
+#else
+    // Fallback to Linux
+    platformSuffix = "x86_64-arm-none-eabi.tar.xz";
+#endif
+    
+    return baseUrl + platformSuffix;
 }
 
 QString LibraryChecker::getLibrariesPath()

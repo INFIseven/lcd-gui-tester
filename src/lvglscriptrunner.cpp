@@ -55,54 +55,68 @@ bool LVGLScriptRunner::processImages(const QStringList& imagePaths, const QStrin
     if (imagePaths.isEmpty()) {
         return false;
     }
-    
+
     // Check if LVGL script exists
     QString scriptPath = getLVGLScriptPath();
     if (!QFile::exists(scriptPath)) {
-        QMessageBox::critical(m_parent, "Script Missing", 
+        QMessageBox::critical(m_parent, "Script Missing",
                             "LVGL image script not found. Please ensure LVGL library is properly installed.");
         return false;
     }
-    
+
     // Ensure Python is ready
     if (!ensurePythonReady()) {
         return false;
     }
-    
-    // Create output directory
-    QDir().mkpath(outputDir);
-    
+
+    // Ensure output directory exists and use QDir for proper path handling
+    QDir generatedDir(outputDir);
+    if (!generatedDir.exists()) {
+        generatedDir.mkpath(".");
+    }
+    QString absoluteOutputDir = generatedDir.absolutePath();
+
     // Create progress dialog
     QProgressDialog progressDialog("Processing images with LVGL...", "Cancel", 0, imagePaths.size(), m_parent);
     progressDialog.setWindowModality(Qt::WindowModal);
     progressDialog.show();
-    
+
     QStringList processedFiles;
     QStringList headerDeclarations;
     QStringList arrayNames;
-    
+
     for (int i = 0; i < imagePaths.size(); ++i) {
         if (progressDialog.wasCanceled()) {
             break;
         }
-        
+
         const QString& imagePath = imagePaths[i];
         QFileInfo imageInfo(imagePath);
         QString baseName = imageInfo.baseName();
-        QString outputFile = QString("%1/%2.c").arg(outputDir, baseName);
-        
+
+        // Sanitize baseName: replace any character that is not A-Z, a-z, 0-9, or _ with _
+        for (int j = 0; j < baseName.length(); ++j) {
+            QChar c = baseName[j];
+            if (!c.isLetterOrNumber() && c != '_') {
+                baseName[j] = '_';
+            }
+        }
+
+        QString outputFile = generatedDir.filePath(baseName + ".c");
+
         progressDialog.setLabelText(QString("Processing %1 (%2 of %3)...")
                                    .arg(imageInfo.fileName())
                                    .arg(i + 1)
                                    .arg(imagePaths.size()));
         progressDialog.setValue(i);
-        
+
         QApplication::processEvents();
-        
+
         // Run LVGL script with correct arguments
+        // Note: --output expects a directory path, the script creates {dir}/{name}.c
         QStringList arguments;
         arguments << imagePath;
-        arguments << "--output" << outputFile;
+        arguments << "--output" << absoluteOutputDir;
         arguments << "--ofmt" << "C";
         arguments << "--cf" << "RGB565";  // Avoid pngquant dependency
         arguments << "--name" << baseName;
@@ -132,13 +146,13 @@ bool LVGLScriptRunner::processImages(const QStringList& imagePaths, const QStrin
     progressDialog.setValue(imagePaths.size());
     
     if (processedFiles.isEmpty()) {
-        QMessageBox::warning(m_parent, "No Images Processed", 
+        QMessageBox::warning(m_parent, "No Images Processed",
                            "No images were successfully processed.");
         return false;
     }
-    
-    // Create combined header file
-    QString headerPath = outputDir + "/generated_images.h";
+
+    // Create combined header file in the generated directory
+    QString headerPath = generatedDir.filePath("generated_images.h");
     QFile headerFile(headerPath);
     if (headerFile.open(QIODevice::WriteOnly)) {
         QTextStream stream(&headerFile);
@@ -166,8 +180,8 @@ bool LVGLScriptRunner::processImages(const QStringList& imagePaths, const QStrin
         headerFile.close();
     }
     
-    // Create implementation file for image array
-    QString implPath = outputDir + "/generated_images.c";
+    // Create implementation file for image array in the generated directory
+    QString implPath = generatedDir.filePath("generated_images.c");
     QFile implFile(implPath);
     if (implFile.open(QIODevice::WriteOnly)) {
         QTextStream stream(&implFile);

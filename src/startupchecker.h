@@ -20,10 +20,14 @@ public:
         bool needsLVGL = false;
         bool needsPython = false;
         bool needsPythonPackages = false;
+        bool needsNrf52Sdk = false;
+        bool needsArmGnuToolchain = false;
+        bool needsNrf52Firmware = false;
         QStringList missingPackages;
-        
+
         bool hasAnyMissing() const {
-            return needsLVGL || needsPython || needsPythonPackages;
+            return needsLVGL || needsPython || needsPythonPackages ||
+                   needsNrf52Sdk || needsArmGnuToolchain || needsNrf52Firmware;
         }
     };
     
