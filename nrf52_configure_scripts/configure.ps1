@@ -100,16 +100,14 @@ try {
             throw "CMake configuration failed with exit code $LASTEXITCODE"
         }
 
+        # Build the project
         Write-Host ""
-        Write-Host "Configuration complete!" -ForegroundColor Green
-        Write-Host "You can now build with:"
-        if ($IsWindows -or $env:OS -match "Windows") {
-            Write-Host "  mingw32-make"
-        } else {
-            Write-Host "  make"
+        Write-Host "Building project..." -ForegroundColor Cyan
+        & $CmakeExe --build .
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Build failed with exit code $LASTEXITCODE"
         }
-        Write-Host "or"
-        Write-Host "  cmake --build ."
 
     } finally {
         Pop-Location

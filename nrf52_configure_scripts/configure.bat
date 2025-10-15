@@ -103,10 +103,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo.
-echo Configuration complete! You can now build with:
-echo   mingw32-make
-echo or
-echo   cmake --build .
+"%CMAKE_PATH%" --build .
 
 endlocal

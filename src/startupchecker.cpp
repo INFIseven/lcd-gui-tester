@@ -91,11 +91,10 @@ StartupChecker::MissingComponents StartupChecker::checkAllComponents()
         qDebug() << "ARM GNU Toolchain found";
     }
 
-    // Check nRF52 Firmware
+    // Check nRF52 Firmware (source code, not built hex)
     QString firmwarePath = appDir + "/libraries/nrf52-lcd-tester-fw";
-    QDir firmwareDir(firmwarePath);
-    QStringList hexFiles = firmwareDir.entryList(QStringList() << "*.hex", QDir::Files);
-    if (!firmwareDir.exists() || hexFiles.isEmpty()) {
+    QString cmakeListsPath = firmwarePath + "/CMakeLists.txt";
+    if (!QFile::exists(cmakeListsPath)) {
         missing.needsNrf52Firmware = true;
         qDebug() << "nRF52 LCD Tester Firmware is missing";
     } else {

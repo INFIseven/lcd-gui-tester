@@ -66,8 +66,4 @@ fi
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     "$SOURCE_PATH"
 
-echo ""
-echo "Configuration complete! You can now build with:"
-echo "  make"
-echo "or"
-echo "  cmake --build ."
+"$CMAKE_PATH/cmake" --build .

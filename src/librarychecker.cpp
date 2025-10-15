@@ -266,21 +266,19 @@ bool LibraryChecker::isNrf52FirmwarePresent()
     QString librariesPath = getLibrariesPath();
     QDir firmwareDir(librariesPath + "/" + NRF52_FIRMWARE_FOLDER);
 
-    // Check if nRF52 firmware directory exists and contains key files
+    // Check if nRF52 firmware directory exists and contains key source files
     if (!firmwareDir.exists()) {
         return false;
     }
 
-    // Check for key firmware files to ensure it's a complete installation
-    // Look for hex files in the directory
-    QStringList hexFiles = firmwareDir.entryList(QStringList() << "*.hex", QDir::Files);
-
-    if (hexFiles.isEmpty()) {
-        qDebug() << "Missing nRF52 firmware hex file";
+    // Check for key firmware source files (not built hex files)
+    QString cmakeListsPath = firmwareDir.absoluteFilePath("CMakeLists.txt");
+    if (!QFile::exists(cmakeListsPath)) {
+        qDebug() << "Missing nRF52 firmware CMakeLists.txt";
         return false;
     }
 
-    qDebug() << "Found nRF52 firmware files:" << hexFiles;
+    qDebug() << "Found nRF52 firmware source code";
     return true;
 }
 
