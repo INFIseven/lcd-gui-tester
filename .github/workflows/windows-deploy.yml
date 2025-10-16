@@ -1,0 +1,84 @@
+name: Windows Build and Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Qt6
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: '6.6.0'
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2019_64'
+        modules: 'qtnetworkauth'
+        cache: true
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "NMake Makefiles"
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Package Windows Application
+      shell: powershell
+      run: |
+        # Create distribution directory
+        New-Item -ItemType Directory -Force -Path lcd-gui-tester-windows
+
+        # Copy executable
+        Copy-Item build\lcd-gui-tester.exe lcd-gui-tester-windows\
+        Copy-Item README.md lcd-gui-tester-windows\
+
+        # Use windeployqt to bundle Qt libraries
+        Write-Host "Bundling Qt6 libraries..."
+        & windeployqt lcd-gui-tester-windows\lcd-gui-tester.exe --release --no-translations
+
+        # Create installation instructions
+        @"
+        LCD GUI Tester - Installation Instructions
+        =========================================
+
+        This package contains a self-contained version of LCD GUI Tester with all Qt6 libraries bundled.
+
+        To run:
+        1. Extract this archive
+        2. Double-click lcd-gui-tester.exe
+
+        Requirements: Windows 10/11 x64
+        "@ | Out-File -FilePath lcd-gui-tester-windows\INSTALL.txt -Encoding UTF8
+
+        # Show bundled files
+        Write-Host "Bundled files:"
+        Get-ChildItem -Recurse lcd-gui-tester-windows
+
+        # Create ZIP archive
+        Compress-Archive -Path lcd-gui-tester-windows\* -DestinationPath lcd-gui-tester-windows.zip
+
+    - name: Upload Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: lcd-gui-tester-windows
+        path: lcd-gui-tester-windows.zip
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: lcd-gui-tester-windows.zip
+        prerelease: ${{ contains(github.ref_name, '-') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
