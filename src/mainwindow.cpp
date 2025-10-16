@@ -23,6 +23,12 @@ MainWindow::MainWindow(QWidget *parent)
   m_startupChecker = new StartupChecker(this);
   m_scriptRunner = new LVGLScriptRunner(this);
 
+  // Connect script runner signals
+  connect(m_scriptRunner, &LVGLScriptRunner::processingCompleted,
+          this, &MainWindow::onProcessingCompleted);
+  connect(m_scriptRunner, &LVGLScriptRunner::processingProgress,
+          this, &MainWindow::onProcessingProgress);
+
   // Perform comprehensive startup check
   if (!m_startupChecker->performStartupCheck()) {
     // User declined or setup failed - show warning but continue
@@ -187,6 +193,10 @@ void MainWindow::flashImages() {
     return;
   }
 
+  // Disable flash button during processing
+  m_flashButton->setEnabled(false);
+  m_flashButton->setText("PROCESSING...");
+
   // Prepare image paths
   QStringList imagePaths;
   for (const ImageInfo &imageInfo : m_images) {
@@ -197,6 +207,21 @@ void MainWindow::flashImages() {
   QString appDir = QApplication::applicationDirPath();
   QString outputDir = appDir + "/generated";
 
-  // Process images with embedded Python and LVGL script
-  m_scriptRunner->processImages(imagePaths, outputDir);
+  // Process images asynchronously with embedded Python and LVGL script
+  m_scriptRunner->processImagesAsync(imagePaths, outputDir);
+}
+
+void MainWindow::onProcessingCompleted(bool success, const QString &message) {
+  // Re-enable flash button
+  m_flashButton->setEnabled(true);
+  m_flashButton->setText("UPLOAD");
+
+  if (!success) {
+    QMessageBox::critical(this, "Error", message);
+  }
+}
+
+void MainWindow::onProcessingProgress(const QString &status) {
+  // Optional: Update status bar or similar
+  statusBar()->showMessage(status, 3000);
 }

@@ -31,29 +31,18 @@ StartupChecker::~StartupChecker()
 bool StartupChecker::performStartupCheck()
 {
     qDebug() << "Performing startup component check...";
-    
-    // Check what components are missing
-    MissingComponents missing = checkAllComponents();
-    
-    if (!missing.hasAnyMissing()) {
-        qDebug() << "All components are available, startup complete";
-        return true;
+
+    // LibraryChecker now handles all components including Python
+    // It will check, download, and show a single final status dialog
+    bool success = m_libraryChecker->checkAndDownloadLibraries();
+
+    if (success) {
+        qDebug() << "All components setup successfully";
+    } else {
+        qDebug() << "Failed to setup some components";
     }
-    
-    // Request user permission to download missing components
-    if (!requestUserPermission(missing)) {
-        qDebug() << "User declined to install missing components";
-        return false;
-    }
-    
-    // Download and setup missing components
-    if (!downloadAndSetupComponents(missing)) {
-        qDebug() << "Failed to setup components";
-        return false;
-    }
-    
-    qDebug() << "All components setup successfully";
-    return true;
+
+    return success;
 }
 
 StartupChecker::MissingComponents StartupChecker::checkAllComponents()
@@ -93,8 +82,11 @@ StartupChecker::MissingComponents StartupChecker::checkAllComponents()
 
     // Check nRF52 Firmware (source code, not built hex)
     QString firmwarePath = appDir + "/libraries/nrf52-lcd-tester-fw";
-    QString cmakeListsPath = firmwarePath + "/CMakeLists.txt";
-    if (!QFile::exists(cmakeListsPath)) {
+    QDir firmwareDir(firmwarePath);
+    if (!firmwareDir.exists() ||
+        !QFile::exists(firmwarePath + "/CMakeLists.txt") ||
+        !QFile::exists(firmwarePath + "/src") ||
+        !QFile::exists(firmwarePath + "/lv_conf.h")) {
         missing.needsNrf52Firmware = true;
         qDebug() << "nRF52 LCD Tester Firmware is missing";
     } else {
@@ -102,11 +94,15 @@ StartupChecker::MissingComponents StartupChecker::checkAllComponents()
     }
 
     // Check CMake
-    QString cmakePath = appDir + "/libraries/cmake/bin/cmake";
+    QString cmakeBasePath = appDir + "/libraries/cmake";
+    QDir cmakeDir(cmakeBasePath);
+    QString cmakeExe = cmakeBasePath + "/bin/cmake";
 #ifdef Q_OS_WIN
-    cmakePath += ".exe";
+    cmakeExe += ".exe";
 #endif
-    if (!QFile::exists(cmakePath)) {
+    if (!cmakeDir.exists() ||
+        !QFile::exists(cmakeExe) ||
+        !QFile::exists(cmakeBasePath + "/share/cmake-4.1/Modules/CMakeDetermineSystem.cmake")) {
         missing.needsCMake = true;
         qDebug() << "CMake is missing";
     } else {
@@ -159,6 +155,7 @@ bool StartupChecker::requestUserPermission(const MissingComponents& missing)
     QString message = "The application requires some components to function properly:\n\n";
     QStringList missingItems;
 
+    // List all missing components (including Python)
     if (missing.needsLVGL) {
         missingItems.append("• LVGL library (~15MB)");
     }
@@ -204,61 +201,58 @@ bool StartupChecker::requestUserPermission(const MissingComponents& missing)
 
 bool StartupChecker::downloadAndSetupComponents(const MissingComponents& missing)
 {
-    bool allSuccess = true;
+    bool librariesSuccess = true;
+    bool pythonSuccess = true;
+    QStringList failedPythonPackages;
 
     // Download libraries (LVGL, nRF52 SDK, ARM Toolchain, Firmware, CMake) if any are needed
+    // LibraryChecker will show its own dialog with status for libraries only
     if (missing.needsLVGL || missing.needsNrf52Sdk ||
         missing.needsArmGnuToolchain || missing.needsNrf52Firmware || missing.needsCMake) {
         qDebug() << "Setting up required libraries...";
-        if (!m_libraryChecker->checkAndDownloadLibraries()) {
+        librariesSuccess = m_libraryChecker->checkAndDownloadLibraries();
+        if (!librariesSuccess) {
             qDebug() << "Failed to setup some libraries";
-            allSuccess = false;
         } else {
             qDebug() << "Libraries setup completed";
         }
     }
 
-    // Download and setup Python if needed
+    // Download Python components silently
     if (missing.needsPython) {
-        qDebug() << "Setting up embedded Python...";
+        qDebug() << "Downloading embedded Python...";
         if (!m_embeddedPython->setupEmbeddedPython()) {
             qDebug() << "Failed to setup embedded Python";
-            allSuccess = false;
+            pythonSuccess = false;
         } else {
             qDebug() << "Embedded Python setup completed";
         }
     } else if (missing.needsPythonPackages) {
         // Only install missing packages if Python is already available
-        qDebug() << "Installing missing Python packages...";
+        qDebug() << "Downloading missing Python packages...";
 
-        QStringList failedPackages;
         for (const QString& package : missing.missingPackages) {
             if (!m_embeddedPython->installPackage(package)) {
-                failedPackages.append(package);
+                failedPythonPackages.append(package);
                 qDebug() << "Failed to install package:" << package;
             } else {
                 qDebug() << "Successfully installed package:" << package;
             }
         }
 
-        if (!failedPackages.isEmpty()) {
-            QMessageBox::warning(m_parent, "Package Installation",
-                               QString("Failed to install some Python packages: %1\n"
-                                      "Image processing may not work correctly.")
-                               .arg(failedPackages.join(", ")));
-            allSuccess = false;
+        if (!failedPythonPackages.isEmpty()) {
+            pythonSuccess = false;
         }
     }
 
-    if (allSuccess) {
-        QMessageBox::information(m_parent, "Setup Complete",
-                               "All required components have been successfully installed.\n"
-                               "The application is ready for use.");
-    } else {
-        QMessageBox::warning(m_parent, "Setup Incomplete",
-                           "Some components could not be installed. Please check the console output for details.\n"
-                           "Some functionality may not work correctly.");
-    }
+    // Python downloads happen silently - errors are logged but no dialog shown
+    // This keeps the user experience simple with just one final status dialog from LibraryChecker
 
-    return allSuccess;
+    return librariesSuccess && pythonSuccess;
+}
+
+void StartupChecker::downloadPythonComponents(const MissingComponents& missing)
+{
+    // This method is no longer used - Python is now downloaded in downloadAndSetupComponents
+    // Kept for compatibility but does nothing
 }

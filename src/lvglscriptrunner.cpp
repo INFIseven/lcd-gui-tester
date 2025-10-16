@@ -9,13 +9,21 @@
 #include <QProcess>
 #include <QProgressDialog>
 #include <QTextStream>
+#include <QtConcurrent/QtConcurrent>
 
 LVGLScriptRunner::LVGLScriptRunner(QWidget *parent)
-    : QObject(parent), m_parent(parent), m_embeddedPython(nullptr) {
+    : QObject(parent), m_parent(parent), m_embeddedPython(nullptr),
+      m_futureWatcher(nullptr) {
   m_embeddedPython = new EmbeddedPython(parent);
+  m_futureWatcher = new QFutureWatcher<bool>(this);
+  connect(m_futureWatcher, &QFutureWatcher<bool>::finished,
+          this, &LVGLScriptRunner::onProcessingFinished);
 }
 
 LVGLScriptRunner::~LVGLScriptRunner() {
+  if (m_futureWatcher) {
+    m_futureWatcher->waitForFinished();
+  }
   if (m_embeddedPython) {
     m_embeddedPython->deleteLater();
   }
@@ -42,6 +50,30 @@ bool LVGLScriptRunner::ensurePythonReady() {
   qDebug() << "Using embedded Python at:" << pythonPath;
 
   return true;
+}
+
+void LVGLScriptRunner::processImagesAsync(const QStringList &imagePaths,
+                                          const QString &outputDir) {
+  // Run the processing in a separate thread
+  QFuture<bool> future = QtConcurrent::run([this, imagePaths, outputDir]() {
+    return processImages(imagePaths, outputDir);
+  });
+
+  m_futureWatcher->setFuture(future);
+  emit processingProgress("Starting image processing...");
+}
+
+void LVGLScriptRunner::onProcessingFinished() {
+  bool success = m_futureWatcher->result();
+  QString message;
+
+  if (success) {
+    message = "Firmware has been successfully flashed to the nRF52 device!";
+  } else {
+    message = "Processing failed. Check the console for details.";
+  }
+
+  emit processingCompleted(success, message);
 }
 
 bool LVGLScriptRunner::processImages(const QStringList &imagePaths,
@@ -71,21 +103,11 @@ bool LVGLScriptRunner::processImages(const QStringList &imagePaths,
   }
   QString absoluteOutputDir = generatedDir.absolutePath();
 
-  // Create progress dialog
-  QProgressDialog progressDialog("Processing images with LVGL...", "Cancel", 0,
-                                 imagePaths.size(), m_parent);
-  progressDialog.setWindowModality(Qt::WindowModal);
-  progressDialog.show();
-
   QStringList processedFiles;
   QStringList headerDeclarations;
   QStringList arrayNames;
 
   for (int i = 0; i < imagePaths.size(); ++i) {
-    if (progressDialog.wasCanceled()) {
-      break;
-    }
-
     const QString &imagePath = imagePaths[i];
     QFileInfo imageInfo(imagePath);
     QString baseName = imageInfo.baseName();
@@ -101,13 +123,10 @@ bool LVGLScriptRunner::processImages(const QStringList &imagePaths,
 
     QString outputFile = generatedDir.filePath(baseName + ".c");
 
-    progressDialog.setLabelText(QString("Processing %1 (%2 of %3)...")
-                                    .arg(imageInfo.fileName())
-                                    .arg(i + 1)
-                                    .arg(imagePaths.size()));
-    progressDialog.setValue(i);
-
-    QApplication::processEvents();
+    qDebug() << QString("Processing %1 (%2 of %3)...")
+                    .arg(imageInfo.fileName())
+                    .arg(i + 1)
+                    .arg(imagePaths.size());
 
     // Run LVGL script with correct arguments
     // Note: --output expects a directory path, the script creates
@@ -135,19 +154,11 @@ bool LVGLScriptRunner::processImages(const QStringList &imagePaths,
       qDebug() << "Failed to process:" << imagePath;
       qDebug() << "Error:" << error;
       qDebug() << "Output:" << output;
-
-      QMessageBox::warning(m_parent, "Processing Failed",
-                           QString("Failed to process image %1:\n%2")
-                               .arg(imageInfo.fileName())
-                               .arg(error.isEmpty() ? "Unknown error" : error));
     }
   }
 
-  progressDialog.setValue(imagePaths.size());
-
   if (processedFiles.isEmpty()) {
-    QMessageBox::warning(m_parent, "No Images Processed",
-                         "No images were successfully processed.");
+    qDebug() << "No images were successfully processed.";
     return false;
   }
 
@@ -204,9 +215,7 @@ bool LVGLScriptRunner::processImages(const QStringList &imagePaths,
 
   // Automatically proceed to build and flash without confirmation dialogs
   if (!configureAndBuildMCU()) {
-    QMessageBox::critical(m_parent, "Build Failed",
-                          "Failed to configure and build the MCU firmware. "
-                          "Check the console for details.");
+    qDebug() << "Failed to configure and build the MCU firmware.";
     return false;
   }
 
@@ -237,13 +246,6 @@ bool LVGLScriptRunner::configureAndBuildMCU() {
   }
 
   qDebug() << "Running configure script:" << configureScript;
-
-  // Create progress dialog
-  QProgressDialog progressDialog("Configuring MCU build...", "Cancel", 0, 0,
-                                 m_parent);
-  progressDialog.setWindowModality(Qt::WindowModal);
-  progressDialog.show();
-  QApplication::processEvents();
 
   // Run the configure script
   QProcess configureProcess;
@@ -282,13 +284,9 @@ bool LVGLScriptRunner::configureAndBuildMCU() {
     return false;
   }
 
-  progressDialog.close();
-
   // Build succeeded, automatically proceed to flash
   if (!flashFirmware()) {
-    QMessageBox::critical(m_parent, "Flash Failed",
-                          "Failed to flash the firmware. Make sure the "
-                          "device is connected and nrfjprog is available.");
+    qDebug() << "Failed to flash the firmware. Make sure the device is connected and nrfjprog is available.";
     return false;
   }
 
@@ -307,13 +305,6 @@ bool LVGLScriptRunner::flashFirmware() {
   }
 
   qDebug() << "Flashing firmware from:" << hexFile;
-
-  // Create progress dialog
-  QProgressDialog progressDialog("Flashing firmware to nRF52 device...",
-                                 "Cancel", 0, 0, m_parent);
-  progressDialog.setWindowModality(Qt::WindowModal);
-  progressDialog.show();
-  QApplication::processEvents();
 
   // Run nrfjprog to flash the firmware
   QProcess flashProcess;
@@ -349,11 +340,7 @@ bool LVGLScriptRunner::flashFirmware() {
     return false;
   }
 
-  progressDialog.close();
-
-  QMessageBox::information(
-      m_parent, "Flash Complete",
-      "Firmware has been successfully flashed to the nRF52 device!");
+  qDebug() << "Firmware has been successfully flashed to the nRF52 device!";
 
   return true;
 }

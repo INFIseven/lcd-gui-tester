@@ -35,7 +35,7 @@ add_compile_definitions(APP_VERSION="${GIT_TAG_VERSION}")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Network Concurrent)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
@@ -67,7 +67,28 @@ add_executable(lcd-gui-tester
     ${HEADERS}
 )
 
-target_link_libraries(lcd-gui-tester PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui Qt6::Network)
+target_link_libraries(lcd-gui-tester PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui Qt6::Network Qt6::Concurrent)
+
+# Copy nRF52 configure scripts to build_mcu folder
+file(GLOB NRF52_CONFIGURE_SCRIPTS "${CMAKE_SOURCE_DIR}/nrf52_configure_scripts/*")
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/build_mcu")
+
+foreach(SCRIPT_FILE ${NRF52_CONFIGURE_SCRIPTS})
+    get_filename_component(SCRIPT_NAME ${SCRIPT_FILE} NAME)
+    configure_file(
+        ${SCRIPT_FILE}
+        "${CMAKE_BINARY_DIR}/build_mcu/${SCRIPT_NAME}"
+        COPYONLY
+    )
+endforeach()
+
+# Make sure shell scripts are executable
+if(UNIX)
+    file(GLOB SHELL_SCRIPTS "${CMAKE_BINARY_DIR}/build_mcu/*.sh" "${CMAKE_BINARY_DIR}/build_mcu/*.ps1")
+    foreach(SHELL_SCRIPT ${SHELL_SCRIPTS})
+        execute_process(COMMAND chmod +x ${SHELL_SCRIPT})
+    endforeach()
+endif()
 
 # For deployment
 set_target_properties(lcd-gui-tester PROPERTIES

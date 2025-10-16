@@ -1,4 +1,5 @@
 #include "librarychecker.h"
+#include "embeddedpython.h"
 #include <QApplication>
 #include <QMessageBox>
 #include <QNetworkRequest>
@@ -22,8 +23,10 @@ LibraryChecker::LibraryChecker(QWidget* parent)
     , m_currentReply(nullptr)
     , m_progressDialog(nullptr)
     , m_downloadSuccess(false)
+    , m_embeddedPython(nullptr)
 {
     m_networkManager = new QNetworkAccessManager(this);
+    m_embeddedPython = new EmbeddedPython(parent);
 }
 
 LibraryChecker::~LibraryChecker()
@@ -32,142 +35,135 @@ LibraryChecker::~LibraryChecker()
         m_currentReply->abort();
         m_currentReply->deleteLater();
     }
-    
+
     if (m_progressDialog) {
         m_progressDialog->deleteLater();
+    }
+
+    if (m_embeddedPython) {
+        m_embeddedPython->deleteLater();
     }
 }
 
 bool LibraryChecker::checkAndDownloadLibraries()
 {
-    bool allLibrariesPresent = true;
-    
-    if (!isLvglPresent()) {
-        QMessageBox::StandardButton reply = QMessageBox::question(
-            m_parent,
-            "Missing Library",
-            "LVGL library is not found and is required for this application.\n"
-            "Would you like to download it now?\n\n"
-            "This will download LVGL v9.3.0 from GitHub.",
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::Yes
-        );
-        
-        if (reply == QMessageBox::Yes) {
-            downloadLvgl();
-            allLibrariesPresent = allLibrariesPresent && m_downloadSuccess;
-        } else {
-            QMessageBox::warning(
-                m_parent,
-                "Library Required",
-                "LVGL library is required for this application to function properly.\n"
-                "Please install it manually or restart the application to download it."
-            );
-            allLibrariesPresent = false;
-        }
-    }
-    
-    if (!isNrf52SdkPresent()) {
-        QMessageBox::StandardButton reply = QMessageBox::question(
-            m_parent,
-            "Missing SDK",
-            "nRF52 SDK is not found and is required for this application.\n"
-            "Would you like to download it now?\n\n"
-            "This will download nRF5 SDK v17.1.0 from Nordic Semiconductor.",
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::Yes
-        );
-        
-        if (reply == QMessageBox::Yes) {
-            downloadNrf52Sdk();
-            allLibrariesPresent = allLibrariesPresent && m_downloadSuccess;
-        } else {
-            QMessageBox::warning(
-                m_parent,
-                "SDK Required",
-                "nRF52 SDK is required for this application to function properly.\n"
-                "Please install it manually or restart the application to download it."
-            );
-            allLibrariesPresent = false;
-        }
-    }
-    
-    if (!isArmGnuToolchainPresent()) {
-        QMessageBox::StandardButton reply = QMessageBox::question(
-            m_parent,
-            "Missing Toolchain",
-            "ARM GNU Toolchain is not found and is required for this application.\n"
-            "Would you like to download it now?\n\n"
-            "This will download ARM GNU Toolchain v" + QString(ARM_GNU_TOOLCHAIN_VERSION) + " from ARM Developer.",
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::Yes
-        );
+    // Check which libraries are missing
+    struct LibraryStatus {
+        QString name;
+        bool present;
+        bool downloaded;
+    };
 
-        if (reply == QMessageBox::Yes) {
-            downloadArmGnuToolchain();
-            allLibrariesPresent = allLibrariesPresent && m_downloadSuccess;
-        } else {
-            QMessageBox::warning(
-                m_parent,
-                "Toolchain Required",
-                "ARM GNU Toolchain is required for this application to function properly.\n"
-                "Please install it manually or restart the application to download it."
-            );
-            allLibrariesPresent = false;
+    QStringList missingPythonPackages;
+    bool pythonPackagesPresent = isPythonPackagesPresent(missingPythonPackages);
+
+    QVector<LibraryStatus> libraries = {
+        {"LVGL library (~15MB)", isLvglPresent(), false},
+        {"nRF52 SDK (~150MB)", isNrf52SdkPresent(), false},
+        {"ARM GNU Toolchain (~100MB)", isArmGnuToolchainPresent(), false},
+        {"nRF52 LCD Tester Firmware (~1MB)", isNrf52FirmwarePresent(), false},
+        {"CMake (~40MB)", isCMakePresent(), false},
+        {"Embedded Python (~25MB)", isPythonPresent(), false}
+    };
+
+    // Add Python packages entry only if there are missing packages
+    if (!pythonPackagesPresent) {
+        libraries.append({QString("Python packages: %1").arg(missingPythonPackages.join(", ")), false, false});
+    }
+
+    // Build list of missing libraries
+    QStringList missingLibraries;
+    for (const auto& lib : libraries) {
+        if (!lib.present) {
+            missingLibraries.append("• " + lib.name);
         }
     }
 
-    if (!isNrf52FirmwarePresent()) {
-        QMessageBox::StandardButton reply = QMessageBox::question(
-            m_parent,
-            "Missing Firmware",
-            "nRF52 LCD Tester Firmware is not found and is required for this application.\n"
-            "Would you like to download it now?\n\n"
-            "This will download the latest release from GitHub.",
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::Yes
-        );
+    // If all libraries are present, return success
+    if (missingLibraries.isEmpty()) {
+        return true;
+    }
 
-        if (reply == QMessageBox::Yes) {
-            downloadNrf52Firmware();
-            allLibrariesPresent = allLibrariesPresent && m_downloadSuccess;
-        } else {
-            QMessageBox::warning(
-                m_parent,
-                "Firmware Required",
-                "nRF52 LCD Tester Firmware is required for this application to function properly.\n"
-                "Please install it manually or restart the application to download it."
-            );
-            allLibrariesPresent = false;
+    // Automatically download all missing libraries without confirmation
+    if (!libraries[0].present) {
+        downloadLvgl();
+        libraries[0].downloaded = m_downloadSuccess;
+    }
+
+    if (!libraries[1].present) {
+        downloadNrf52Sdk();
+        libraries[1].downloaded = m_downloadSuccess;
+    }
+
+    if (!libraries[2].present) {
+        downloadArmGnuToolchain();
+        libraries[2].downloaded = m_downloadSuccess;
+    }
+
+    if (!libraries[3].present) {
+        downloadNrf52Firmware();
+        libraries[3].downloaded = m_downloadSuccess;
+    }
+
+    if (!libraries[4].present) {
+        downloadCMake();
+        libraries[4].downloaded = m_downloadSuccess;
+    }
+
+    if (!libraries[5].present) {
+        libraries[5].downloaded = downloadPython();
+    }
+
+    // Download Python packages if they were added to the list
+    if (libraries.size() > 6 && !libraries[6].present) {
+        libraries[6].downloaded = downloadPythonPackages(missingPythonPackages);
+    }
+
+    // Build final status message
+    QStringList completedLibraries;
+    QStringList failedLibraries;
+
+    for (int i = 0; i < libraries.size(); ++i) {
+        if (!libraries[i].present) {
+            if (libraries[i].downloaded) {
+                completedLibraries.append("✓ " + libraries[i].name);
+            } else {
+                failedLibraries.append("✗ " + libraries[i].name);
+            }
         }
     }
 
-    if (!isCMakePresent()) {
-        QMessageBox::StandardButton reply = QMessageBox::question(
+    // Show final status dialog
+    QString statusMessage;
+    if (failedLibraries.isEmpty()) {
+        statusMessage = "All components have been successfully downloaded and installed:\n\n";
+        statusMessage += completedLibraries.join("\n");
+        statusMessage += "\n\nThe application is ready for use.";
+
+        QMessageBox::information(
             m_parent,
-            "Missing CMake",
-            "CMake is not found and is required for building firmware.\n"
-            "Would you like to download it now?\n\n"
-            "This will download CMake v" + QString(CMAKE_VERSION) + " from GitHub.",
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::Yes
+            "Download Complete",
+            statusMessage
         );
-
-        if (reply == QMessageBox::Yes) {
-            downloadCMake();
-            allLibrariesPresent = allLibrariesPresent && m_downloadSuccess;
-        } else {
-            QMessageBox::warning(
-                m_parent,
-                "CMake Required",
-                "CMake is required for building firmware.\n"
-                "Please install it manually or restart the application to download it."
-            );
-            allLibrariesPresent = false;
+        return true;
+    } else {
+        statusMessage = "Download Status:\n\n";
+        if (!completedLibraries.isEmpty()) {
+            statusMessage += "Successfully installed:\n";
+            statusMessage += completedLibraries.join("\n");
+            statusMessage += "\n\n";
         }
-    }
+        statusMessage += "Failed to install:\n";
+        statusMessage += failedLibraries.join("\n");
+        statusMessage += "\n\nPlease check your internet connection or install the failed components manually.";
 
-    return allLibrariesPresent;
+        QMessageBox::warning(
+            m_parent,
+            "Download Incomplete",
+            statusMessage
+        );
+        return false;
+    }
 }
 
 bool LibraryChecker::isLvglPresent()
@@ -271,14 +267,20 @@ bool LibraryChecker::isNrf52FirmwarePresent()
         return false;
     }
 
-    // Check for key firmware source files (not built hex files)
-    QString cmakeListsPath = firmwareDir.absoluteFilePath("CMakeLists.txt");
-    if (!QFile::exists(cmakeListsPath)) {
-        qDebug() << "Missing nRF52 firmware CMakeLists.txt";
-        return false;
+    // Check for key firmware source files to ensure it's a complete installation
+    QStringList keyFiles = {
+        "CMakeLists.txt",
+        "src",
+        "lv_conf.h"
+    };
+
+    for (const QString& file : keyFiles) {
+        if (!QFile::exists(firmwareDir.absoluteFilePath(file))) {
+            qDebug() << "Missing nRF52 firmware file:" << file;
+            return false;
+        }
     }
 
-    qDebug() << "Found nRF52 firmware source code";
     return true;
 }
 
@@ -292,18 +294,24 @@ bool LibraryChecker::isCMakePresent()
         return false;
     }
 
-    // Check for CMake executable
-    QString cmakeExe = "bin/cmake";
+    // Check for key CMake files to ensure it's a complete installation
+    QStringList keyFiles = {
+        "bin/cmake",
+        "share/cmake-4.1/Modules/CMakeDetermineSystem.cmake"
+    };
+
+    // On Windows, add .exe extension to executables
 #ifdef Q_OS_WIN
-    cmakeExe += ".exe";
+    keyFiles[0] += ".exe";
 #endif
 
-    if (!QFile::exists(cmakeDir.absoluteFilePath(cmakeExe))) {
-        qDebug() << "Missing CMake executable:" << cmakeExe;
-        return false;
+    for (const QString& file : keyFiles) {
+        if (!QFile::exists(cmakeDir.absoluteFilePath(file))) {
+            qDebug() << "Missing CMake file:" << file;
+            return false;
+        }
     }
 
-    qDebug() << "CMake found";
     return true;
 }
 
@@ -328,7 +336,8 @@ void LibraryChecker::downloadLvgl()
     tempFile->setFileTemplate(QDir::tempPath() + "/lvgl_XXXXXX.zip");
     
     if (!tempFile->open()) {
-        QMessageBox::critical(m_parent, "Error", "Failed to create temporary file for download.");
+        qDebug() << "Failed to create temporary file for download";
+        m_downloadSuccess = false;
         return;
     }
     
@@ -385,7 +394,8 @@ void LibraryChecker::downloadNrf52Sdk()
     tempFile->setFileTemplate(QDir::tempPath() + "/nrf5_sdk_XXXXXX.zip");
     
     if (!tempFile->open()) {
-        QMessageBox::critical(m_parent, "Error", "Failed to create temporary file for download.");
+        qDebug() << "Failed to create temporary file for download";
+        m_downloadSuccess = false;
         return;
     }
     
@@ -444,7 +454,8 @@ void LibraryChecker::downloadArmGnuToolchain()
     tempFile->setFileTemplate(QDir::tempPath() + "/arm_gnu_toolchain_XXXXXX" + fileExtension);
     
     if (!tempFile->open()) {
-        QMessageBox::critical(m_parent, "Error", "Failed to create temporary file for download.");
+        qDebug() << "Failed to create temporary file for download";
+        m_downloadSuccess = false;
         return;
     }
     
@@ -531,13 +542,8 @@ void LibraryChecker::downloadNrf52Firmware()
     QString firmwareUrl = getNrf52FirmwareLatestReleaseUrl();
 
     if (firmwareUrl.isEmpty()) {
-        QMessageBox::critical(
-            m_parent,
-            "Error",
-            "Failed to retrieve the latest firmware release from GitHub.\n"
-            "Please check your internet connection or download manually from:\n"
-            "https://github.com/INFIseven/nrf52-lcd-tester-fw/releases"
-        );
+        qDebug() << "Failed to retrieve the latest firmware release from GitHub";
+        m_downloadSuccess = false;
         return;
     }
 
@@ -557,7 +563,8 @@ void LibraryChecker::downloadNrf52Firmware()
     tempFile->setFileTemplate(QDir::tempPath() + "/nrf52_firmware_XXXXXX.zip");
 
     if (!tempFile->open()) {
-        QMessageBox::critical(m_parent, "Error", "Failed to create temporary file for download.");
+        qDebug() << "Failed to create temporary file for download";
+        m_downloadSuccess = false;
         return;
     }
 
@@ -616,7 +623,8 @@ void LibraryChecker::downloadCMake()
     tempFile->setFileTemplate(QDir::tempPath() + "/cmake_XXXXXX" + fileExtension);
 
     if (!tempFile->open()) {
-        QMessageBox::critical(m_parent, "Error", "Failed to create temporary file for download.");
+        qDebug() << "Failed to create temporary file for download";
+        m_downloadSuccess = false;
         return;
     }
 
@@ -729,22 +737,16 @@ void LibraryChecker::onDownloadFinished()
             
             if (extractionSuccess) {
                 m_downloadSuccess = true;
-                QMessageBox::information(
-                    m_parent,
-                    "Download Complete",
-                    successMsg
-                );
+                // Success - no individual dialog shown
+                qDebug() << successMsg;
             } else {
                 m_downloadSuccess = false;
-                QMessageBox::critical(
-                    m_parent,
-                    "Extraction Failed",
-                    failureMsg
-                );
+                // Failure - no individual dialog shown
+                qDebug() << failureMsg;
             }
         } else {
             m_downloadSuccess = false;
-            QMessageBox::critical(m_parent, "Error", "Failed to save downloaded file.");
+            qDebug() << "Failed to save downloaded file";
         }
     } else {
         m_downloadSuccess = false;
@@ -764,8 +766,8 @@ void LibraryChecker::onDownloadError(QNetworkReply::NetworkError error)
 {
     m_downloadSuccess = false;
     QString errorMsg = QString("Download failed: %1").arg(m_currentReply->errorString());
-    QMessageBox::critical(m_parent, "Download Error", errorMsg);
-    
+    qDebug() << errorMsg;
+
     if (m_progressDialog) {
         m_progressDialog->close();
     }
@@ -937,4 +939,84 @@ QString LibraryChecker::getLibrariesPath()
     // Create libraries folder in the application directory
     QString appDir = QApplication::applicationDirPath();
     return appDir + "/libraries";
+}
+
+bool LibraryChecker::isPythonPresent()
+{
+    return m_embeddedPython->isEmbeddedPythonAvailable();
+}
+
+bool LibraryChecker::downloadPython()
+{
+    qDebug() << "Setting up embedded Python...";
+    bool success = m_embeddedPython->setupEmbeddedPython();
+
+    if (success) {
+        qDebug() << "Embedded Python setup completed";
+    } else {
+        qDebug() << "Failed to setup embedded Python";
+    }
+
+    return success;
+}
+
+bool LibraryChecker::isPythonPackagesPresent(QStringList& missingPackages)
+{
+    missingPackages.clear();
+
+    // If Python is not available, all packages are missing
+    if (!isPythonPresent()) {
+        return false;
+    }
+
+    QString pythonExe = m_embeddedPython->getEmbeddedPythonPath();
+    QStringList requiredPackages = {"Pillow", "pypng", "lz4", "kconfiglib"};
+
+    for (const QString& package : requiredPackages) {
+        // Test each package
+        QString testCommand;
+        if (package == "Pillow") {
+            testCommand = "import PIL.Image";
+        } else if (package == "lz4") {
+            testCommand = "import lz4.block";
+        } else {
+            testCommand = QString("import %1").arg(package == "pypng" ? "png" : package);
+        }
+
+        QProcess testProcess;
+        testProcess.start(pythonExe, {"-c", testCommand});
+        testProcess.waitForFinished(5000);
+
+        if (testProcess.exitCode() != 0) {
+            missingPackages.append(package);
+            qDebug() << "Missing Python package:" << package;
+        }
+    }
+
+    return missingPackages.isEmpty();
+}
+
+bool LibraryChecker::downloadPythonPackages(const QStringList& packages)
+{
+    qDebug() << "Installing Python packages:" << packages.join(", ");
+
+    bool allSuccess = true;
+    for (const QString& package : packages) {
+        qDebug() << "Installing package:" << package;
+
+        if (!m_embeddedPython->installPackage(package)) {
+            qDebug() << "Failed to install package:" << package;
+            allSuccess = false;
+        } else {
+            qDebug() << "Successfully installed package:" << package;
+        }
+    }
+
+    if (allSuccess) {
+        qDebug() << "All Python packages installed successfully";
+    } else {
+        qDebug() << "Some Python packages failed to install";
+    }
+
+    return allSuccess;
 }

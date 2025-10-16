@@ -2,11 +2,14 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QProgressDialog>
 #include <QDir>
 #include <QStandardPaths>
+
+class EmbeddedPython;
 
 class LibraryChecker : public QObject
 {
@@ -15,7 +18,7 @@ class LibraryChecker : public QObject
 public:
     explicit LibraryChecker(QWidget* parent = nullptr);
     ~LibraryChecker();
-    
+
     bool checkAndDownloadLibraries();
 
 private slots:
@@ -34,6 +37,10 @@ private:
     void downloadNrf52Firmware();
     bool isCMakePresent();
     void downloadCMake();
+    bool isPythonPresent();
+    bool downloadPython();
+    bool isPythonPackagesPresent(QStringList& missingPackages);
+    bool downloadPythonPackages(const QStringList& packages);
     QString getNrf52FirmwareLatestReleaseUrl();
     QString getCMakeUrl();
     bool extractZipFile(const QString& zipPath, const QString& extractPath, const QString& targetFolder = "");
@@ -62,4 +69,5 @@ private:
     QString m_tempFilePath;
     bool m_downloadSuccess;
     enum class DownloadType { LVGL, NRF52_SDK, ARM_GNU_TOOLCHAIN, NRF52_FIRMWARE, CMAKE } m_currentDownloadType;
+    EmbeddedPython* m_embeddedPython;
 };

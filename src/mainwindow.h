@@ -18,6 +18,7 @@
 #include <QProcess>
 #include <QVector>
 #include <QFileInfo>
+#include <QStatusBar>
 
 class StartupChecker;
 class LVGLScriptRunner;
@@ -43,6 +44,8 @@ public:
 
 private slots:
     void flashImages();
+    void onProcessingCompleted(bool success, const QString &message);
+    void onProcessingProgress(const QString &status);
 
 private:
     void setupUI();

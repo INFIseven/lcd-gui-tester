@@ -39,7 +39,8 @@ private:
     MissingComponents checkAllComponents();
     bool requestUserPermission(const MissingComponents& missing);
     bool downloadAndSetupComponents(const MissingComponents& missing);
-    
+    void downloadPythonComponents(const MissingComponents& missing);
+
     QWidget* m_parent;
     LibraryChecker* m_libraryChecker;
     EmbeddedPython* m_embeddedPython;
