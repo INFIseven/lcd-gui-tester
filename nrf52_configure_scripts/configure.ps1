@@ -63,12 +63,12 @@ try {
     Push-Location $ScriptDir
 
     try {
-        # Clean previous configuration if requested
-        if ($Clean) {
-            Write-Host "Cleaning previous build files..." -ForegroundColor Yellow
-            if (Test-Path "CMakeCache.txt") { Remove-Item "CMakeCache.txt" -Force }
-            if (Test-Path "CMakeFiles") { Remove-Item "CMakeFiles" -Recurse -Force }
-        }
+        # Always clean CMake cache to ensure fresh configuration
+        Write-Host "Cleaning previous build files..." -ForegroundColor Yellow
+        if (Test-Path "CMakeCache.txt") { Remove-Item "CMakeCache.txt" -Force }
+        if (Test-Path "CMakeFiles") { Remove-Item "CMakeFiles" -Recurse -Force }
+        if (Test-Path "cmake_install.cmake") { Remove-Item "cmake_install.cmake" -Force }
+        if (Test-Path "Makefile") { Remove-Item "Makefile" -Force }
 
         # Convert paths to use forward slashes for CMake compatibility
         $ArmGccPath = $ArmGccPath -replace '\\', '/'
@@ -77,12 +77,17 @@ try {
         $ImagesPath = $ImagesPath -replace '\\', '/'
         $SourcePath = $SourcePath -replace '\\', '/'
 
-        # Build CMake arguments
+        # Use toolchain file to set compilers
+        $ToolchainFile = Join-Path $ScriptDir "toolchain-arm-none-eabi.cmake"
+        $ToolchainFile = $ToolchainFile -replace '\\', '/'
+
+        # Build CMake arguments (use STRING type for cache variables)
         $CmakeArgs = @(
-            "-DARM_GCC_PATH=$ArmGccPath",
-            "-DNRF_SDK_PATH=$NrfSdkPath",
-            "-DLVGL_PATH=$LvglPath",
-            "-DIMAGES_PATH=$ImagesPath",
+            "-DCMAKE_TOOLCHAIN_FILE=$ToolchainFile",
+            "-DARM_GCC_PATH:STRING=$ArmGccPath",
+            "-DNRF_SDK_PATH:STRING=$NrfSdkPath",
+            "-DLVGL_PATH:STRING=$LvglPath",
+            "-DIMAGES_PATH:STRING=$ImagesPath",
             "-DCMAKE_BUILD_TYPE=$BuildType",
             "$SourcePath"
         )

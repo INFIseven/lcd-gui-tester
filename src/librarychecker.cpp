@@ -331,18 +331,11 @@ void LibraryChecker::downloadLvgl()
     m_progressDialog->setAutoClose(true);
     m_progressDialog->setAutoReset(true);
     
-    // Create temporary file for download
-    QTemporaryFile* tempFile = new QTemporaryFile(this);
-    tempFile->setFileTemplate(QDir::tempPath() + "/lvgl_XXXXXX.zip");
-    
-    if (!tempFile->open()) {
-        qDebug() << "Failed to create temporary file for download";
-        m_downloadSuccess = false;
-        return;
-    }
-    
-    m_tempFilePath = tempFile->fileName();
-    tempFile->close();
+    // Create temporary file path manually to avoid QTemporaryFile handle issues
+    m_tempFilePath = QDir::tempPath() + "/lvgl_" +
+                     QString::number(QDateTime::currentMSecsSinceEpoch()) + ".zip";
+
+    qDebug() << "Will download to:" << m_tempFilePath;
     
     // Start download
     QNetworkRequest request{QUrl(LVGL_URL)};
@@ -389,18 +382,11 @@ void LibraryChecker::downloadNrf52Sdk()
     m_progressDialog->setAutoClose(true);
     m_progressDialog->setAutoReset(true);
     
-    // Create temporary file for download
-    QTemporaryFile* tempFile = new QTemporaryFile(this);
-    tempFile->setFileTemplate(QDir::tempPath() + "/nrf5_sdk_XXXXXX.zip");
-    
-    if (!tempFile->open()) {
-        qDebug() << "Failed to create temporary file for download";
-        m_downloadSuccess = false;
-        return;
-    }
-    
-    m_tempFilePath = tempFile->fileName();
-    tempFile->close();
+    // Create temporary file path manually to avoid QTemporaryFile handle issues
+    m_tempFilePath = QDir::tempPath() + "/nrf5_sdk_" +
+                     QString::number(QDateTime::currentMSecsSinceEpoch()) + ".zip";
+
+    qDebug() << "Will download to:" << m_tempFilePath;
     
     // Start download
     QNetworkRequest request{QUrl(NRF52_SDK_URL)};
@@ -447,20 +433,13 @@ void LibraryChecker::downloadArmGnuToolchain()
     m_progressDialog->setAutoClose(true);
     m_progressDialog->setAutoReset(true);
     
-    // Create temporary file for download
-    QTemporaryFile* tempFile = new QTemporaryFile(this);
+    // Create temporary file path manually to avoid QTemporaryFile handle issues
     QString toolchainUrl = getArmGnuToolchainUrl();
     QString fileExtension = toolchainUrl.endsWith(".zip") ? ".zip" : ".tar.xz";
-    tempFile->setFileTemplate(QDir::tempPath() + "/arm_gnu_toolchain_XXXXXX" + fileExtension);
-    
-    if (!tempFile->open()) {
-        qDebug() << "Failed to create temporary file for download";
-        m_downloadSuccess = false;
-        return;
-    }
-    
-    m_tempFilePath = tempFile->fileName();
-    tempFile->close();
+    m_tempFilePath = QDir::tempPath() + "/arm_gnu_toolchain_" +
+                     QString::number(QDateTime::currentMSecsSinceEpoch()) + fileExtension;
+
+    qDebug() << "Will download to:" << m_tempFilePath;
     
     // Start download
     QNetworkRequest request{QUrl(toolchainUrl)};
@@ -558,18 +537,11 @@ void LibraryChecker::downloadNrf52Firmware()
     m_progressDialog->setAutoClose(true);
     m_progressDialog->setAutoReset(true);
 
-    // Create temporary file for download
-    QTemporaryFile* tempFile = new QTemporaryFile(this);
-    tempFile->setFileTemplate(QDir::tempPath() + "/nrf52_firmware_XXXXXX.zip");
+    // Create temporary file path manually to avoid QTemporaryFile handle issues
+    m_tempFilePath = QDir::tempPath() + "/nrf52_firmware_" +
+                     QString::number(QDateTime::currentMSecsSinceEpoch()) + ".zip";
 
-    if (!tempFile->open()) {
-        qDebug() << "Failed to create temporary file for download";
-        m_downloadSuccess = false;
-        return;
-    }
-
-    m_tempFilePath = tempFile->fileName();
-    tempFile->close();
+    qDebug() << "Will download to:" << m_tempFilePath;
 
     // Start download
     QNetworkRequest request{QUrl(firmwareUrl)};
@@ -616,20 +588,13 @@ void LibraryChecker::downloadCMake()
     m_progressDialog->setAutoClose(true);
     m_progressDialog->setAutoReset(true);
 
-    // Create temporary file for download
-    QTemporaryFile* tempFile = new QTemporaryFile(this);
+    // Create temporary file path manually to avoid QTemporaryFile handle issues
     QString cmakeUrl = getCMakeUrl();
     QString fileExtension = cmakeUrl.endsWith(".zip") ? ".zip" : ".tar.gz";
-    tempFile->setFileTemplate(QDir::tempPath() + "/cmake_XXXXXX" + fileExtension);
+    m_tempFilePath = QDir::tempPath() + "/cmake_" +
+                     QString::number(QDateTime::currentMSecsSinceEpoch()) + fileExtension;
 
-    if (!tempFile->open()) {
-        qDebug() << "Failed to create temporary file for download";
-        m_downloadSuccess = false;
-        return;
-    }
-
-    m_tempFilePath = tempFile->fileName();
-    tempFile->close();
+    qDebug() << "Will download to:" << m_tempFilePath;
 
     // Start download
     QNetworkRequest request{QUrl(cmakeUrl)};
@@ -688,73 +653,113 @@ void LibraryChecker::onDownloadFinished()
     }
     
     if (m_currentReply->error() == QNetworkReply::NoError) {
-        // Save downloaded data
-        QFile file(m_tempFilePath);
-        if (file.open(QIODevice::WriteOnly)) {
-            file.write(m_currentReply->readAll());
-            file.close();
-            
-            // Extract the zip file
-            QString librariesPath = getLibrariesPath();
-            QDir().mkpath(librariesPath);
-            
-            // Determine target folder and message based on download type
-            QString targetFolder;
-            QString successMsg;
-            QString failureMsg;
+        // Read all data from reply first
+        QByteArray downloadedData = m_currentReply->readAll();
 
-            if (m_currentDownloadType == DownloadType::LVGL) {
-                targetFolder = LVGL_FOLDER;
-                successMsg = "LVGL library has been successfully downloaded and extracted.";
-                failureMsg = "Failed to extract LVGL library. Please try again or install manually.";
-            } else if (m_currentDownloadType == DownloadType::NRF52_SDK) {
-                targetFolder = NRF52_SDK_FOLDER;
-                successMsg = "nRF52 SDK has been successfully downloaded and extracted.";
-                failureMsg = "Failed to extract nRF52 SDK. Please try again or install manually.";
-            } else if (m_currentDownloadType == DownloadType::ARM_GNU_TOOLCHAIN) {
-                targetFolder = ARM_GNU_TOOLCHAIN_FOLDER;
-                successMsg = "ARM GNU Toolchain has been successfully downloaded and extracted.";
-                failureMsg = "Failed to extract ARM GNU Toolchain. Please try again or install manually.";
-            } else if (m_currentDownloadType == DownloadType::NRF52_FIRMWARE) {
-                targetFolder = NRF52_FIRMWARE_FOLDER;
-                successMsg = "nRF52 LCD Tester Firmware has been successfully downloaded and extracted.";
-                failureMsg = "Failed to extract nRF52 LCD Tester Firmware. Please try again or install manually.";
-            } else if (m_currentDownloadType == DownloadType::CMAKE) {
-                targetFolder = CMAKE_FOLDER;
-                successMsg = "CMake has been successfully downloaded and extracted.";
-                failureMsg = "Failed to extract CMake. Please try again or install manually.";
-            }
+        // Delete reply immediately to release any file handles
+        m_currentReply->deleteLater();
+        m_currentReply = nullptr;
 
-            bool extractionSuccess = false;
+        // Save downloaded data in a scoped block to ensure file handle is released
+        QString librariesPath = getLibrariesPath();
+        bool fileSaved = false;
+        qint64 fileSize = 0;
 
-            // Choose extraction method based on file type and download type
-            if ((m_currentDownloadType == DownloadType::ARM_GNU_TOOLCHAIN && m_tempFilePath.endsWith(".tar.xz")) ||
-                (m_currentDownloadType == DownloadType::CMAKE && m_tempFilePath.endsWith(".tar.gz"))) {
-                extractionSuccess = extractTarFile(m_tempFilePath, librariesPath, targetFolder);
-            } else {
-                extractionSuccess = extractZipFile(m_tempFilePath, librariesPath, targetFolder);
+        {
+            QFile file(m_tempFilePath);
+            if (file.open(QIODevice::WriteOnly)) {
+                file.write(downloadedData);
+                file.flush(); // Ensure all data is written to disk
+                fileSize = file.size();
+                file.close();
+                fileSaved = true;
             }
-            
-            if (extractionSuccess) {
-                m_downloadSuccess = true;
-                // Success - no individual dialog shown
-                qDebug() << successMsg;
-            } else {
-                m_downloadSuccess = false;
-                // Failure - no individual dialog shown
-                qDebug() << failureMsg;
-            }
-        } else {
+            // file destructor called here when going out of scope
+        }
+
+        // Clear the downloaded data from memory
+        downloadedData.clear();
+
+        if (!fileSaved) {
             m_downloadSuccess = false;
             qDebug() << "Failed to save downloaded file";
+
+            if (m_progressDialog) {
+                m_progressDialog->close();
+                m_progressDialog->deleteLater();
+                m_progressDialog = nullptr;
+            }
+            return;
+        }
+
+        // Wait for Windows to fully release all file handles
+        qDebug() << "Waiting for file handles to be released...";
+        QThread::msleep(1000); // Wait 1 second for Windows to release all handles
+
+        // Extract the zip file
+        QDir().mkpath(librariesPath);
+
+        qDebug() << "Downloaded file saved to:" << m_tempFilePath;
+        qDebug() << "Libraries path:" << librariesPath;
+        qDebug() << "File exists:" << QFile::exists(m_tempFilePath);
+        qDebug() << "File size:" << fileSize << "bytes";
+
+        // Determine target folder and message based on download type
+        QString targetFolder;
+        QString successMsg;
+        QString failureMsg;
+
+        if (m_currentDownloadType == DownloadType::LVGL) {
+            targetFolder = LVGL_FOLDER;
+            successMsg = "LVGL library has been successfully downloaded and extracted.";
+            failureMsg = "Failed to extract LVGL library. Please try again or install manually.";
+        } else if (m_currentDownloadType == DownloadType::NRF52_SDK) {
+            targetFolder = NRF52_SDK_FOLDER;
+            successMsg = "nRF52 SDK has been successfully downloaded and extracted.";
+            failureMsg = "Failed to extract nRF52 SDK. Please try again or install manually.";
+        } else if (m_currentDownloadType == DownloadType::ARM_GNU_TOOLCHAIN) {
+            targetFolder = ARM_GNU_TOOLCHAIN_FOLDER;
+            successMsg = "ARM GNU Toolchain has been successfully downloaded and extracted.";
+            failureMsg = "Failed to extract ARM GNU Toolchain. Please try again or install manually.";
+        } else if (m_currentDownloadType == DownloadType::NRF52_FIRMWARE) {
+            targetFolder = NRF52_FIRMWARE_FOLDER;
+            successMsg = "nRF52 LCD Tester Firmware has been successfully downloaded and extracted.";
+            failureMsg = "Failed to extract nRF52 LCD Tester Firmware. Please try again or install manually.";
+        } else if (m_currentDownloadType == DownloadType::CMAKE) {
+            targetFolder = CMAKE_FOLDER;
+            successMsg = "CMake has been successfully downloaded and extracted.";
+            failureMsg = "Failed to extract CMake. Please try again or install manually.";
+        }
+
+        bool extractionSuccess = false;
+
+        // Choose extraction method based on file type and download type
+        if ((m_currentDownloadType == DownloadType::ARM_GNU_TOOLCHAIN && m_tempFilePath.endsWith(".tar.xz")) ||
+            (m_currentDownloadType == DownloadType::CMAKE && m_tempFilePath.endsWith(".tar.gz"))) {
+            extractionSuccess = extractTarFile(m_tempFilePath, librariesPath, targetFolder);
+        } else {
+            extractionSuccess = extractZipFile(m_tempFilePath, librariesPath, targetFolder);
+        }
+
+        if (extractionSuccess) {
+            m_downloadSuccess = true;
+            // Success - no individual dialog shown
+            qDebug() << successMsg;
+        } else {
+            m_downloadSuccess = false;
+            // Failure - no individual dialog shown
+            qDebug() << failureMsg;
         }
     } else {
         m_downloadSuccess = false;
+        // Delete reply on error
+        if (m_currentReply) {
+            m_currentReply->deleteLater();
+            m_currentReply = nullptr;
+        }
     }
-    
-    m_currentReply->deleteLater();
-    m_currentReply = nullptr;
-    
+
+    // Clean up progress dialog (reply already deleted in success case)
     if (m_progressDialog) {
         m_progressDialog->close();
         m_progressDialog->deleteLater();
@@ -778,12 +783,18 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
     QProcess unzipProcess;
 
 #ifdef Q_OS_WIN
-    // Use PowerShell on Windows
+    // Use PowerShell with direct .NET approach - more reliable than Expand-Archive
+    // Create a temporary extraction directory with SHORT path to avoid Windows 260 char path limit
+    // Use C:/Temp instead of the libraries path which might already be long
+    QString tempExtractBase = "C:/Temp/lcd_extract_" + QString::number(QDateTime::currentMSecsSinceEpoch());
+    QDir().mkpath(tempExtractBase);
+
     QString command = "powershell";
     QStringList arguments;
-    arguments << "-Command"
-              << QString("Expand-Archive -Path '%1' -DestinationPath '%2' -Force")
-                 .arg(zipPath).arg(extractPath);
+    arguments << "-NoProfile" << "-ExecutionPolicy" << "Bypass" << "-Command"
+              << QString("Add-Type -AssemblyName System.IO.Compression.FileSystem; "
+                        "[System.IO.Compression.ZipFile]::ExtractToDirectory('%1', '%2')")
+                 .arg(zipPath).arg(tempExtractBase);
 #else
     // Use unzip command on Linux/macOS
     QString command = "unzip";
@@ -794,8 +805,31 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
     unzipProcess.start(command, arguments);
     unzipProcess.waitForFinished(120000); // 120 second timeout for larger files
 
-    if (unzipProcess.exitCode() == 0) {
+    // Read output first for debugging
+    QString stdOutput = unzipProcess.readAllStandardOutput();
+    QString stdError = unzipProcess.readAllStandardError();
+    int exitCode = unzipProcess.exitCode();
+
+    qDebug() << "Extraction command:" << command << arguments.join(" ");
+    qDebug() << "Exit code:" << exitCode;
+    qDebug() << "Standard output:" << stdOutput;
+    qDebug() << "Standard error:" << stdError;
+
+    // On Windows, PowerShell may return 0 even on failure, so check stderr too
+    bool hasErrors = false;
+#ifdef Q_OS_WIN
+    hasErrors = stdError.contains("Exception", Qt::CaseInsensitive) ||
+                stdError.contains("Error", Qt::CaseInsensitive) ||
+                stdError.contains("cannot access", Qt::CaseInsensitive);
+#endif
+
+    if (exitCode == 0 && !hasErrors) {
+#ifdef Q_OS_WIN
+        // On Windows, we extracted to a temp directory, so use that
+        QDir extractDir(tempExtractBase);
+#else
         QDir extractDir(extractPath);
+#endif
         QStringList entries = extractDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         
         // Handle different extraction patterns based on target folder
@@ -810,6 +844,9 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
             } else if (targetFolder == NRF52_SDK_FOLDER && (entry.startsWith("nRF5_SDK_") || entry.startsWith("nrf5_sdk_") || entry == "nRF5_SDK_17.1.0_ddde560")) {
                 newPath = extractDir.absoluteFilePath(NRF52_SDK_FOLDER);
                 shouldRename = true;
+            } else if (targetFolder == ARM_GNU_TOOLCHAIN_FOLDER && entry.startsWith("arm-gnu-toolchain-")) {
+                newPath = extractDir.absoluteFilePath(ARM_GNU_TOOLCHAIN_FOLDER);
+                shouldRename = true;
             } else if (targetFolder == NRF52_FIRMWARE_FOLDER && entry.startsWith("nrf52-lcd-tester-fw")) {
                 newPath = extractDir.absoluteFilePath(NRF52_FIRMWARE_FOLDER);
                 shouldRename = true;
@@ -820,25 +857,71 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
 
             if (shouldRename) {
                 // Remove existing folder if it exists
-                QDir(newPath).removeRecursively();
+                QString finalPath = extractPath + "/" + QFileInfo(newPath).fileName();
+                QDir(finalPath).removeRecursively();
 
-                // Rename the extracted folder
-                bool success = QDir().rename(oldPath, newPath);
+                // Move the extracted folder to final location
+                bool renameSuccess = QDir().rename(oldPath, finalPath);
 
-                // Delete the .zip file as requested
-                QFile::remove(zipPath);
+                if (renameSuccess) {
+                    qDebug() << "Successfully moved" << oldPath << "to" << finalPath;
 
-                return success;
+                    // Verify the extracted folder exists and has content
+                    QDir verifyDir(finalPath);
+                    if (!verifyDir.exists()) {
+                        qDebug() << "ERROR: Moved folder does not exist:" << finalPath;
+#ifdef Q_OS_WIN
+                        // Clean up temp directory
+                        QDir(tempExtractBase).removeRecursively();
+#endif
+                        return false;
+                    }
+
+                    QStringList contents = verifyDir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
+                    if (contents.isEmpty()) {
+                        qDebug() << "ERROR: Extracted folder is empty:" << finalPath;
+#ifdef Q_OS_WIN
+                        // Clean up temp directory
+                        QDir(tempExtractBase).removeRecursively();
+#endif
+                        return false;
+                    }
+
+                    qDebug() << "Extraction verified. Folder contains" << contents.size() << "items";
+
+#ifdef Q_OS_WIN
+                    // Clean up temp directory
+                    QDir(tempExtractBase).removeRecursively();
+#endif
+                    // Delete the .zip file
+                    QFile::remove(zipPath);
+                    return true;
+                } else {
+                    qDebug() << "ERROR: Failed to move" << oldPath << "to" << finalPath;
+#ifdef Q_OS_WIN
+                    // Clean up temp directory
+                    QDir(tempExtractBase).removeRecursively();
+#endif
+                    return false;
+                }
             }
         }
-        
+
         // If no rename needed (direct extraction), just delete the zip
+        qDebug() << "No rename needed, extraction complete";
+#ifdef Q_OS_WIN
+        // Clean up temp directory
+        QDir(tempExtractBase).removeRecursively();
+#endif
         QFile::remove(zipPath);
         return true;
     }
-    
-    qDebug() << "Unzip process output:" << unzipProcess.readAllStandardOutput();
-    qDebug() << "Unzip process errors:" << unzipProcess.readAllStandardError();
+
+    qDebug() << "Extraction failed - exit code:" << exitCode << "or errors detected in stderr";
+#ifdef Q_OS_WIN
+    // Clean up temp directory on failure
+    QDir(tempExtractBase).removeRecursively();
+#endif
     return false;
 }
 
@@ -851,8 +934,18 @@ bool LibraryChecker::extractTarFile(const QString& tarPath, const QString& extra
     
     tarProcess.start("tar", arguments);
     tarProcess.waitForFinished(120000); // 120 second timeout for large files
-    
-    if (tarProcess.exitCode() == 0) {
+
+    // Read output first for debugging
+    QString stdOutput = tarProcess.readAllStandardOutput();
+    QString stdError = tarProcess.readAllStandardError();
+    int exitCode = tarProcess.exitCode();
+
+    qDebug() << "Tar extraction command: tar" << arguments.join(" ");
+    qDebug() << "Exit code:" << exitCode;
+    qDebug() << "Standard output:" << stdOutput;
+    qDebug() << "Standard error:" << stdError;
+
+    if (exitCode == 0) {
         QDir extractDir(extractPath);
         QStringList entries = extractDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         

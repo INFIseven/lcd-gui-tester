@@ -91,7 +91,10 @@ if(UNIX)
 endif()
 
 # For deployment
-set_target_properties(lcd-gui-tester PROPERTIES
-    WIN32_EXECUTABLE TRUE
-    MACOSX_BUNDLE TRUE
-)
+# Comment out WIN32_EXECUTABLE for Debug builds to see console output
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set_target_properties(lcd-gui-tester PROPERTIES
+        WIN32_EXECUTABLE TRUE
+        MACOSX_BUNDLE TRUE
+    )
+endif()

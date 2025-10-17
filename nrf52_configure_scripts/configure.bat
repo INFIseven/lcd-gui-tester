@@ -71,12 +71,12 @@ echo   CMAKE:         %CMAKE_PATH%
 echo   SOURCE:        %SOURCE_PATH%
 echo.
 
-REM Clean previous configuration if requested
-if "%~2"=="clean" (
-    echo Cleaning previous build files...
-    if exist CMakeCache.txt del /F /Q CMakeCache.txt
-    if exist CMakeFiles rd /S /Q CMakeFiles
-)
+REM Always clean CMake cache to ensure fresh configuration
+echo Cleaning previous build files...
+if exist CMakeCache.txt del /F /Q CMakeCache.txt
+if exist CMakeFiles rd /S /Q CMakeFiles
+if exist cmake_install.cmake del /F /Q cmake_install.cmake
+if exist Makefile del /F /Q Makefile
 
 REM Change to script directory
 cd /d "%SCRIPT_DIR%"
@@ -88,12 +88,17 @@ set "LVGL_PATH=%LVGL_PATH:\=/%"
 set "IMAGES_PATH=%IMAGES_PATH:\=/%"
 set "SOURCE_PATH=%SOURCE_PATH:\=/%"
 
+REM Use toolchain file to set compilers (must be before source directory)
+set "TOOLCHAIN_FILE=%SCRIPT_DIR%\toolchain-arm-none-eabi.cmake"
+set "TOOLCHAIN_FILE=%TOOLCHAIN_FILE:\=/%"
+
 "%CMAKE_PATH%" ^
     -G "MinGW Makefiles" ^
-    -DARM_GCC_PATH="%ARM_GCC_PATH%" ^
-    -DNRF_SDK_PATH="%NRF_SDK_PATH%" ^
-    -DLVGL_PATH="%LVGL_PATH%" ^
-    -DIMAGES_PATH="%IMAGES_PATH%" ^
+    -DCMAKE_TOOLCHAIN_FILE="%TOOLCHAIN_FILE%" ^
+    -DARM_GCC_PATH:STRING="%ARM_GCC_PATH%" ^
+    -DNRF_SDK_PATH:STRING="%NRF_SDK_PATH%" ^
+    -DLVGL_PATH:STRING="%LVGL_PATH%" ^
+    -DIMAGES_PATH:STRING="%IMAGES_PATH%" ^
     -DCMAKE_BUILD_TYPE="%BUILD_TYPE%" ^
     "%SOURCE_PATH%"
 

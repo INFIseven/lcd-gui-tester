@@ -11,6 +11,8 @@
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QSysInfo>
+#include <QDateTime>
+#include <QThread>
 
 // Python distribution URLs (using Python 3.11 embedded)
 const QString EmbeddedPython::PYTHON_WINDOWS_X64_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-win32.zip";
@@ -94,7 +96,7 @@ EmbeddedPython::PythonDistribution EmbeddedPython::getDistributionForPlatform()
 QString EmbeddedPython::getPythonDirectory()
 {
     QString appDir = QApplication::applicationDirPath();
-    return appDir + "/python";
+    return appDir + "/libraries/python";
 }
 
 QString EmbeddedPython::getScriptsDirectory()
@@ -195,18 +197,12 @@ bool EmbeddedPython::downloadPythonDistribution()
     m_progressDialog->setAutoClose(true);
     m_progressDialog->setAutoReset(true);
     
-    // Create temporary file for download
-    QTemporaryFile* tempFile = new QTemporaryFile(this);
-    tempFile->setFileTemplate(QDir::tempPath() + "/python_dist_XXXXXX." + 
-                             (dist.filename.endsWith(".zip") ? "zip" : "tar.gz"));
-    
-    if (!tempFile->open()) {
-        QMessageBox::critical(m_parent, "Error", "Failed to create temporary file for download.");
-        return false;
-    }
-    
-    m_tempFilePath = tempFile->fileName();
-    tempFile->close();
+    // Create temporary file path manually to avoid QTemporaryFile handle issues
+    QString fileExtension = dist.filename.endsWith(".zip") ? ".zip" : ".tar.gz";
+    m_tempFilePath = QDir::tempPath() + "/python_dist_" +
+                     QString::number(QDateTime::currentMSecsSinceEpoch()) + fileExtension;
+
+    qDebug() << "Will download Python to:" << m_tempFilePath;
     
     // Start download
     QNetworkRequest request(QUrl(dist.url));
@@ -242,14 +238,33 @@ bool EmbeddedPython::downloadPythonDistribution()
     }
     
     bool downloadSuccess = (m_currentReply->error() == QNetworkReply::NoError);
-    
+
     if (downloadSuccess) {
-        // Save downloaded data immediately (instead of in onDownloadFinished)
-        QFile file(m_tempFilePath);
-        if (file.open(QIODevice::WriteOnly)) {
-            file.write(m_currentReply->readAll());
-            file.close();
-            
+        // Read all data from reply first and delete it immediately
+        QByteArray downloadedData = m_currentReply->readAll();
+        m_currentReply->deleteLater();
+        m_currentReply = nullptr;
+
+        // Save downloaded data in a scoped block
+        {
+            QFile file(m_tempFilePath);
+            if (file.open(QIODevice::WriteOnly)) {
+                file.write(downloadedData);
+                file.flush();
+                file.close();
+            } else {
+                qDebug() << "Failed to save downloaded file";
+                downloadSuccess = false;
+            }
+        }
+
+        downloadedData.clear();
+
+        if (downloadSuccess) {
+            // Wait for Windows to release file handles
+            qDebug() << "Waiting for file handles to be released...";
+            QThread::msleep(1000);
+
             // Extract the distribution synchronously
             if (extractPythonDistribution(m_tempFilePath)) {
                 qDebug() << "Python distribution extracted successfully";
@@ -257,18 +272,17 @@ bool EmbeddedPython::downloadPythonDistribution()
                 qDebug() << "Failed to extract Python distribution";
                 downloadSuccess = false;
             }
-            
+
             // Clean up temporary file
             QFile::remove(m_tempFilePath);
-        } else {
-            qDebug() << "Failed to save downloaded file";
-            downloadSuccess = false;
+        }
+    } else {
+        // Clean up the reply on error
+        if (m_currentReply) {
+            m_currentReply->deleteLater();
+            m_currentReply = nullptr;
         }
     }
-    
-    // Clean up the reply
-    m_currentReply->deleteLater();
-    m_currentReply = nullptr;
     
     if (m_progressDialog) {
         m_progressDialog->close();
@@ -283,90 +297,183 @@ bool EmbeddedPython::extractPythonDistribution(const QString& zipPath)
 {
     QString pythonDir = getPythonDirectory();
     QDir().mkpath(pythonDir);
-    
+
     // Extract the distribution
     QProcess extractProcess;
     QStringList arguments;
-    
+
 #ifdef Q_OS_WIN
-    // Use built-in Windows extraction or 7zip if available
-    QString command = QStandardPaths::findExecutable("powershell");
-    if (!command.isEmpty()) {
-        arguments << "-Command" 
-                 << QString("Expand-Archive -Path '%1' -DestinationPath '%2' -Force")
-                    .arg(zipPath).arg(pythonDir);
+    // Use .NET compression with short temp path to avoid path length issues
+    QString tempExtractBase = "C:/Temp/python_extract_" + QString::number(QDateTime::currentMSecsSinceEpoch());
+    QDir().mkpath(tempExtractBase);
+
+    QString command = "powershell";
+    arguments << "-NoProfile" << "-ExecutionPolicy" << "Bypass" << "-Command"
+              << QString("Add-Type -AssemblyName System.IO.Compression.FileSystem; "
+                        "[System.IO.Compression.ZipFile]::ExtractToDirectory('%1', '%2')")
+                 .arg(zipPath).arg(tempExtractBase);
+
+    extractProcess.start(command, arguments);
+    extractProcess.waitForFinished(60000); // 60 second timeout
+
+    QString stdError = extractProcess.readAllStandardError();
+    bool hasErrors = stdError.contains("Exception", Qt::CaseInsensitive) ||
+                     stdError.contains("Error", Qt::CaseInsensitive);
+
+    if (extractProcess.exitCode() == 0 && !hasErrors) {
+        // Move extracted files to final location
+        QDir tempDir(tempExtractBase);
+        QStringList entries = tempDir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
+
+        qDebug() << "Extracted" << entries.size() << "items to temp location";
+
+        // Move all files from temp to python directory
+        for (const QString& entry : entries) {
+            QString oldPath = tempDir.absoluteFilePath(entry);
+            QString newPath = pythonDir + "/" + entry;
+
+            // Remove if exists
+            if (QFile::exists(newPath)) {
+                if (QFileInfo(newPath).isDir()) {
+                    QDir(newPath).removeRecursively();
+                } else {
+                    QFile::remove(newPath);
+                }
+            }
+
+            bool moved = QDir().rename(oldPath, newPath);
+            if (!moved) {
+                qDebug() << "Failed to move:" << oldPath << "to" << newPath;
+            }
+        }
+
+        // Clean up temp directory
+        QDir(tempExtractBase).removeRecursively();
+
+        qDebug() << "Python extracted to:" << pythonDir;
+        return true;
     } else {
-        // Fallback to system extraction
-        command = "tar";
-        arguments << "-xf" << zipPath << "-C" << pythonDir;
+        qDebug() << "Extraction failed. Exit code:" << extractProcess.exitCode();
+        qDebug() << "Error:" << stdError;
+        QDir(tempExtractBase).removeRecursively();
+        return false;
     }
 #else
     // Use tar for Linux/macOS
     QString command = "tar";
     arguments << "-xzf" << zipPath << "-C" << pythonDir << "--strip-components=1";
-#endif
-    
+
     extractProcess.start(command, arguments);
     extractProcess.waitForFinished(60000); // 60 second timeout
-    
+
     bool success = extractProcess.exitCode() == 0;
     if (!success) {
         QString error = extractProcess.readAllStandardError();
         qDebug() << "Extraction failed:" << error;
     }
-    
+
     return success;
+#endif
 }
 
 bool EmbeddedPython::installPip()
 {
 #ifdef Q_OS_WIN
+    qDebug() << "Installing pip for Windows embedded Python...";
+
     // For Windows embedded Python, we need to enable pip
     QString pythonDir = getPythonDirectory();
     QString pthFile = pythonDir + "/python311._pth";
-    
+
+    qDebug() << "Python directory:" << pythonDir;
+    qDebug() << "Looking for .pth file:" << pthFile;
+
     // Modify the .pth file to enable site-packages
     QFile file(pthFile);
     if (file.open(QIODevice::ReadOnly)) {
         QString content = file.readAll();
         file.close();
-        
-        if (!content.contains("#import site")) {
-            content.replace("import site", "#import site");
-            content += "\nimport site\n";
-            
-            if (file.open(QIODevice::WriteOnly)) {
+
+        qDebug() << "Found .pth file, original content:" << content;
+
+        // Check if "import site" is already enabled (not commented out)
+        // We need to uncomment it if it's currently "#import site"
+        if (content.contains("#import site") && !content.contains("\nimport site\n")) {
+            // Uncomment the line by replacing "#import site" with "import site"
+            content.replace("#import site", "import site");
+
+            if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
                 file.write(content.toUtf8());
                 file.close();
+                qDebug() << "Updated .pth file to enable site-packages";
+                qDebug() << "New content:" << content;
+            } else {
+                qDebug() << "Failed to write .pth file";
+            }
+        } else if (content.contains("\nimport site") || content.endsWith("import site")) {
+            qDebug() << ".pth file already has import site enabled";
+        } else {
+            qDebug() << "WARNING: Unexpected .pth file format, adding import site anyway";
+            content += "\nimport site\n";
+            if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                file.write(content.toUtf8());
+                file.close();
+                qDebug() << "Added import site to .pth file";
             }
         }
+    } else {
+        qDebug() << "WARNING: Could not find python311._pth file. Pip installation may fail.";
     }
-    
+
     // Download and install pip
     QString pythonExe = getEmbeddedPythonPath();
     QString getPipUrl = "https://bootstrap.pypa.io/get-pip.py";
-    
+
+    qDebug() << "Python executable:" << pythonExe;
+    qDebug() << "Python exists:" << QFile::exists(pythonExe);
+    qDebug() << "Downloading get-pip.py from:" << getPipUrl;
+
     // Download get-pip.py
     QNetworkRequest request{QUrl(getPipUrl)};
     QNetworkReply* reply = m_networkManager->get(request);
-    
+
     QEventLoop loop;
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     loop.exec();
-    
+
     if (reply->error() == QNetworkReply::NoError) {
+        qDebug() << "Successfully downloaded get-pip.py";
+
         QString getPipPath = pythonDir + "/get-pip.py";
         QFile getPipFile(getPipPath);
         if (getPipFile.open(QIODevice::WriteOnly)) {
             getPipFile.write(reply->readAll());
             getPipFile.close();
-            
-            // Run get-pip.py
+            qDebug() << "Saved get-pip.py to:" << getPipPath;
+
+            // Run get-pip.py (without --user to install in embedded Python directory)
+            qDebug() << "Running get-pip.py...";
             QProcess pipProcess;
-            pipProcess.start(pythonExe, {getPipPath, "--user"});
+            pipProcess.start(pythonExe, {getPipPath});
             pipProcess.waitForFinished(120000); // 2 minute timeout
-            
-            return pipProcess.exitCode() == 0;
+
+            int exitCode = pipProcess.exitCode();
+            QString stdOut = pipProcess.readAllStandardOutput();
+            QString stdErr = pipProcess.readAllStandardError();
+
+            qDebug() << "get-pip.py exit code:" << exitCode;
+            qDebug() << "get-pip.py stdout:" << stdOut;
+            qDebug() << "get-pip.py stderr:" << stdErr;
+
+            if (exitCode == 0) {
+                qDebug() << "Pip installed successfully";
+            } else {
+                qDebug() << "Pip installation failed with exit code:" << exitCode;
+            }
+
+            return exitCode == 0;
+        } else {
+            qDebug() << "Failed to save get-pip.py to:" << getPipPath;
         }
     }
     
@@ -392,11 +499,8 @@ bool EmbeddedPython::installPackage(const QString& packageName)
     m_progressDialog->show();
     
     QStringList arguments;
-#ifdef Q_OS_WIN
-    arguments << "-m" << "pip" << "install" << "--user" << packageName;
-#else
+    // Install packages directly in embedded Python (no --user flag)
     arguments << "-m" << "pip" << "install" << packageName;
-#endif
     
     qDebug() << "Installing package:" << packageName << "with command:" << pythonExe << arguments.join(" ");
     

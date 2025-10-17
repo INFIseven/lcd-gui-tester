@@ -35,3 +35,14 @@ Use `act` for test deployement with
 ``` bash
 act --artifact-server-path /tmp/artifacts
 ```
+
+
+cmake -G "Ninja" -DCMAKE_PREFIX_PATH="C:/Qt/6.9.3/mingw_64" ..
+cmake -G "Ninja" -DCMAKE_PREFIX_PATH="C:/Qt/6.9.3/mingw_64" -DCMAKE_BUILD_TYPE=Debug ..
+
+cmake -G "Ninja" -DCMAKE_PREFIX_PATH="C:/Qt/6.9.3/msvc2022_64" ..
+cmake -G "Ninja" -DCMAKE_PREFIX_PATH="C:/Qt/6.9.3/msvc2022_64" -DCMAKE_BUILD_TYPE=Debug ..
+
+cmake --build .
+
+C:\Qt\6.9.3\msvc2022_64\bin\windeployqt.exe lcd-gui-tester.exe --debug

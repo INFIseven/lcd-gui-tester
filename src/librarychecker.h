@@ -8,6 +8,8 @@
 #include <QProgressDialog>
 #include <QDir>
 #include <QStandardPaths>
+#include <QThread>
+#include <QDateTime>
 
 class EmbeddedPython;
 
