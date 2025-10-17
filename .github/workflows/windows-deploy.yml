@@ -27,8 +27,11 @@ jobs:
       with:
         arch: x64
 
+    - name: Install Ninja
+      run: choco install ninja
+
     - name: Configure CMake
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "NMake Makefiles"
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "Ninja"
 
     - name: Build
       run: cmake --build build --config Release

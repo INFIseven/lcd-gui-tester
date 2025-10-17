@@ -10,9 +10,7 @@
 #include <QDebug>
 #include <QStandardPaths>
 #include <QTextStream>
-#ifdef Q_OS_MACOS
 #include <QSysInfo>
-#endif
 
 // Python distribution URLs (using Python 3.11 embedded)
 const QString EmbeddedPython::PYTHON_WINDOWS_X64_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-win32.zip";
@@ -349,7 +347,7 @@ bool EmbeddedPython::installPip()
     QString getPipUrl = "https://bootstrap.pypa.io/get-pip.py";
     
     // Download get-pip.py
-    QNetworkRequest request(QUrl(getPipUrl));
+    QNetworkRequest request{QUrl(getPipUrl)};
     QNetworkReply* reply = m_networkManager->get(request);
     
     QEventLoop loop;

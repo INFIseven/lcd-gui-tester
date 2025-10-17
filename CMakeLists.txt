@@ -32,7 +32,7 @@ message(STATUS "Application version: ${GIT_TAG_VERSION}")
 # Pass version to the application
 add_compile_definitions(APP_VERSION="${GIT_TAG_VERSION}")
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Network Concurrent)

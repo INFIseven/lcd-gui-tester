@@ -33,7 +33,7 @@ jobs:
         # Copy executable
         cp build/lcd-gui-tester lcd-gui-tester-linux/
         cp README.md lcd-gui-tester-linux/
-        
+
         # Find and copy Qt6 libraries and their dependencies
         echo "Bundling Qt6 libraries..."
         ldd build/lcd-gui-tester | grep -E "(Qt6|libQt)" | awk '{print $3}' | while read lib; do
