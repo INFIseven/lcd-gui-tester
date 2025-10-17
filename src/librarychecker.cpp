@@ -775,14 +775,25 @@ void LibraryChecker::onDownloadError(QNetworkReply::NetworkError error)
 
 bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extractPath, const QString& targetFolder)
 {
-    // Use system unzip command for simplicity
     QProcess unzipProcess;
+
+#ifdef Q_OS_WIN
+    // Use PowerShell on Windows
+    QString command = "powershell";
     QStringList arguments;
-    arguments << zipPath << "-d" << extractPath;
-    
-    unzipProcess.start("unzip", arguments);
-    unzipProcess.waitForFinished(60000); // 60 second timeout for larger files
-    
+    arguments << "-Command"
+              << QString("Expand-Archive -Path '%1' -DestinationPath '%2' -Force")
+                 .arg(zipPath).arg(extractPath);
+#else
+    // Use unzip command on Linux/macOS
+    QString command = "unzip";
+    QStringList arguments;
+    arguments << "-o" << zipPath << "-d" << extractPath;
+#endif
+
+    unzipProcess.start(command, arguments);
+    unzipProcess.waitForFinished(120000); // 120 second timeout for larger files
+
     if (unzipProcess.exitCode() == 0) {
         QDir extractDir(extractPath);
         QStringList entries = extractDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
