@@ -306,17 +306,16 @@ bool LVGLScriptRunner::flashFirmware() {
 
   qDebug() << "Flashing firmware from:" << hexFile;
 
-  // Run nrfjprog to flash the firmware
+  // Run nrfutil to flash the firmware
   QProcess flashProcess;
-  flashProcess.start("nrfjprog", QStringList()
-                                     << "--program" << hexFile
-                                     << "--chiperase"
-                                     << "--reset"
-                                     << "--verify");
+  flashProcess.start("nrfutil", QStringList()
+                                    << "device" << "program"
+                                    << "--firmware" << hexFile
+                                    << "--options" << "chip_erase_mode=ERASE_ALL,verify=VERIFY_READ,reset=RESET_SYSTEM");
 
   if (!flashProcess.waitForStarted()) {
     qDebug()
-        << "Failed to start nrfjprog. Make sure it's installed and in PATH.";
+        << "Failed to start nrfutil. Make sure it's installed and in PATH.";
     return false;
   }
 
