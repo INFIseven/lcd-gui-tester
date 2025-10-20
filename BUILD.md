@@ -44,9 +44,17 @@ cmake --build .
 
 **Windows:**
 ```bash
-cmake -DCMAKE_BUILD_TYPE=Release -DQt6_DIR="C:/Qt/6.5.0/msvc2022_64/lib/cmake/Qt6" ..
-cmake --build . --config Release
-windeployqt.exe Release/nrf52-image-uploader.exe
+cmake -G "Ninja" -DCMAKE_PREFIX_PATH="C:/Qt/6.9.3/mingw_64" ..
+cmake -G "Ninja" -DCMAKE_PREFIX_PATH="C:/Qt/6.9.3/mingw_64" -DCMAKE_BUILD_TYPE=Debug ..
+
+Not used
+cmake -G "Ninja" -DCMAKE_PREFIX_PATH="C:/Qt/6.9.3/msvc2022_64" ..
+cmake -G "Ninja" -DCMAKE_PREFIX_PATH="C:/Qt/6.9.3/msvc2022_64" -DCMAKE_BUILD_TYPE=Debug ..
+
+cmake --build .
+
+C:\Qt\6.9.3\mingw_64\bin\windeployqt.exe lcd-gui-tester.exe --debug
+C:\Qt\6.9.3\mingw_64\bin\windeployqt.exe lcd-gui-tester.exe
 ```
 
 **Linux:**

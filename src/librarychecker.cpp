@@ -63,6 +63,7 @@ bool LibraryChecker::checkAndDownloadLibraries()
         {"ARM GNU Toolchain (~100MB)", isArmGnuToolchainPresent(), false},
         {"nRF52 LCD Tester Firmware (~1MB)", isNrf52FirmwarePresent(), false},
         {"CMake (~40MB)", isCMakePresent(), false},
+        {"Ninja (~1MB)", isNinjaPresent(), false},
         {"Embedded Python (~25MB)", isPythonPresent(), false}
     };
 
@@ -111,12 +112,17 @@ bool LibraryChecker::checkAndDownloadLibraries()
     }
 
     if (!libraries[5].present) {
-        libraries[5].downloaded = downloadPython();
+        downloadNinja();
+        libraries[5].downloaded = m_downloadSuccess;
+    }
+
+    if (!libraries[6].present) {
+        libraries[6].downloaded = downloadPython();
     }
 
     // Download Python packages if they were added to the list
-    if (libraries.size() > 6 && !libraries[6].present) {
-        libraries[6].downloaded = downloadPythonPackages(missingPythonPackages);
+    if (libraries.size() > 7 && !libraries[7].present) {
+        libraries[7].downloaded = downloadPythonPackages(missingPythonPackages);
     }
 
     // Build final status message
@@ -310,6 +316,32 @@ bool LibraryChecker::isCMakePresent()
             qDebug() << "Missing CMake file:" << file;
             return false;
         }
+    }
+
+    return true;
+}
+
+bool LibraryChecker::isNinjaPresent()
+{
+    QString librariesPath = getLibrariesPath();
+    QDir ninjaDir(librariesPath + "/" + NINJA_FOLDER);
+
+    // Check if Ninja directory exists and contains the ninja executable
+    if (!ninjaDir.exists()) {
+        return false;
+    }
+
+    // Check for ninja executable
+    QString ninjaExe = "ninja";
+
+    // On Windows, add .exe extension
+#ifdef Q_OS_WIN
+    ninjaExe += ".exe";
+#endif
+
+    if (!QFile::exists(ninjaDir.absoluteFilePath(ninjaExe))) {
+        qDebug() << "Missing Ninja executable:" << ninjaExe;
+        return false;
     }
 
     return true;
@@ -625,6 +657,57 @@ void LibraryChecker::downloadCMake()
     loop.exec();
 }
 
+void LibraryChecker::downloadNinja()
+{
+    m_downloadSuccess = false;
+    m_currentDownloadType = DownloadType::NINJA;
+
+    // Create progress dialog
+    m_progressDialog = new QProgressDialog(
+        "Downloading Ninja...",
+        "Cancel",
+        0, 100,
+        m_parent
+    );
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setAutoClose(true);
+    m_progressDialog->setAutoReset(true);
+
+    // Create temporary file path manually to avoid QTemporaryFile handle issues
+    m_tempFilePath = QDir::tempPath() + "/ninja_" +
+                     QString::number(QDateTime::currentMSecsSinceEpoch()) + ".zip";
+
+    qDebug() << "Will download to:" << m_tempFilePath;
+
+    // Start download
+    QNetworkRequest request{QUrl(getNinjaUrl())};
+    request.setHeader(QNetworkRequest::UserAgentHeader, "LCD-GUI-Tester/1.0");
+
+    m_currentReply = m_networkManager->get(request);
+
+    connect(m_currentReply, &QNetworkReply::downloadProgress,
+            this, &LibraryChecker::onDownloadProgress);
+    connect(m_currentReply, &QNetworkReply::finished,
+            this, &LibraryChecker::onDownloadFinished);
+    connect(m_currentReply, &QNetworkReply::errorOccurred,
+            this, &LibraryChecker::onDownloadError);
+
+    // Connect cancel button
+    connect(m_progressDialog, &QProgressDialog::canceled, [this]() {
+        if (m_currentReply) {
+            m_currentReply->abort();
+        }
+    });
+
+    m_progressDialog->show();
+
+    // Block until download completes using event loop
+    QEventLoop loop;
+    connect(m_currentReply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    connect(m_progressDialog, &QProgressDialog::canceled, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+
 void LibraryChecker::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
 {
     if (m_progressDialog && bytesTotal > 0) {
@@ -729,6 +812,10 @@ void LibraryChecker::onDownloadFinished()
             targetFolder = CMAKE_FOLDER;
             successMsg = "CMake has been successfully downloaded and extracted.";
             failureMsg = "Failed to extract CMake. Please try again or install manually.";
+        } else if (m_currentDownloadType == DownloadType::NINJA) {
+            targetFolder = NINJA_FOLDER;
+            successMsg = "Ninja has been successfully downloaded and extracted.";
+            failureMsg = "Failed to extract Ninja. Please try again or install manually.";
         }
 
         bool extractionSuccess = false;
@@ -830,8 +917,49 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
 #else
         QDir extractDir(extractPath);
 #endif
+
+        // Special handling for Ninja - it extracts directly (no subdirectory)
+        if (targetFolder == NINJA_FOLDER) {
+            QString finalPath = extractPath + "/" + NINJA_FOLDER;
+            QDir(finalPath).removeRecursively();
+            QDir().mkpath(finalPath);
+
+            // Move all files from extraction directory to final path
+            QStringList allFiles = extractDir.entryList(QDir::Files);
+            bool moveSuccess = true;
+
+            for (const QString& file : allFiles) {
+                QString srcFile = extractDir.absoluteFilePath(file);
+                QString dstFile = finalPath + "/" + file;
+
+                if (!QFile::rename(srcFile, dstFile)) {
+                    qDebug() << "ERROR: Failed to move" << srcFile << "to" << dstFile;
+                    moveSuccess = false;
+                    break;
+                }
+            }
+
+            if (moveSuccess && !allFiles.isEmpty()) {
+                qDebug() << "Successfully extracted Ninja to" << finalPath;
+#ifdef Q_OS_WIN
+                // Clean up temp directory
+                QDir(tempExtractBase).removeRecursively();
+#endif
+                // Delete the .zip file
+                QFile::remove(zipPath);
+                return true;
+            } else {
+                qDebug() << "ERROR: Failed to extract Ninja";
+#ifdef Q_OS_WIN
+                // Clean up temp directory
+                QDir(tempExtractBase).removeRecursively();
+#endif
+                return false;
+            }
+        }
+
         QStringList entries = extractDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-        
+
         // Handle different extraction patterns based on target folder
         for (const QString& entry : entries) {
             QString oldPath = extractDir.absoluteFilePath(entry);
@@ -1036,6 +1164,28 @@ QString LibraryChecker::getCMakeUrl()
 #endif
 
     return baseUrl + platformSuffix;
+}
+
+QString LibraryChecker::getNinjaUrl()
+{
+    QString baseUrl = NINJA_BASE_URL;
+    QString fileName;
+
+#ifdef Q_OS_WIN
+    // Windows
+    fileName = "ninja-win.zip";
+#elif defined(Q_OS_LINUX)
+    // Linux
+    fileName = "ninja-linux.zip";
+#elif defined(Q_OS_MACOS)
+    // macOS
+    fileName = "ninja-mac.zip";
+#else
+    // Fallback to Linux
+    fileName = "ninja-linux.zip";
+#endif
+
+    return baseUrl + fileName;
 }
 
 QString LibraryChecker::getLibrariesPath()

@@ -39,12 +39,15 @@ private:
     void downloadNrf52Firmware();
     bool isCMakePresent();
     void downloadCMake();
+    bool isNinjaPresent();
+    void downloadNinja();
     bool isPythonPresent();
     bool downloadPython();
     bool isPythonPackagesPresent(QStringList& missingPackages);
     bool downloadPythonPackages(const QStringList& packages);
     QString getNrf52FirmwareLatestReleaseUrl();
     QString getCMakeUrl();
+    QString getNinjaUrl();
     bool extractZipFile(const QString& zipPath, const QString& extractPath, const QString& targetFolder = "");
     bool extractTarFile(const QString& tarPath, const QString& extractPath, const QString& targetFolder = "");
     QString getLibrariesPath();
@@ -63,6 +66,9 @@ private:
     static constexpr const char* CMAKE_VERSION = "4.1.2";
     static constexpr const char* CMAKE_BASE_URL = "https://github.com/Kitware/CMake/releases/download/v4.1.2/cmake-4.1.2-";
     static constexpr const char* CMAKE_FOLDER = "cmake";
+    static constexpr const char* NINJA_VERSION = "1.13.1";
+    static constexpr const char* NINJA_BASE_URL = "https://github.com/ninja-build/ninja/releases/download/v1.13.1/";
+    static constexpr const char* NINJA_FOLDER = "ninja";
 
     QWidget* m_parent;
     QNetworkAccessManager* m_networkManager;
@@ -70,6 +76,6 @@ private:
     QProgressDialog* m_progressDialog;
     QString m_tempFilePath;
     bool m_downloadSuccess;
-    enum class DownloadType { LVGL, NRF52_SDK, ARM_GNU_TOOLCHAIN, NRF52_FIRMWARE, CMAKE } m_currentDownloadType;
+    enum class DownloadType { LVGL, NRF52_SDK, ARM_GNU_TOOLCHAIN, NRF52_FIRMWARE, CMAKE, NINJA } m_currentDownloadType;
     EmbeddedPython* m_embeddedPython;
 };

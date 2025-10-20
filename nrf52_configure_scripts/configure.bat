@@ -40,6 +40,18 @@ if errorlevel 1 (
 set "CMAKE_PATH=%CD%\cmake.exe"
 popd
 
+pushd "%SCRIPT_DIR%\..\libraries" 2>nul
+if errorlevel 1 (
+    echo Error: Libraries directory not found at ..\libraries
+    exit /b 1
+)
+set "NINJA_PATH=%CD%\ninja\ninja.exe"
+if not exist "%NINJA_PATH%" (
+    echo Error: Ninja not found at ..\libraries\ninja\ninja.exe
+    exit /b 1
+)
+popd
+
 pushd "%SCRIPT_DIR%\..\libraries\nrf52-lcd-tester-fw" 2>nul
 if errorlevel 1 (
     echo Error: Source not found at ..\libraries\nrf52-lcd-tester-fw
@@ -68,6 +80,7 @@ echo   LVGL_PATH:     %LVGL_PATH%
 echo   IMAGES_PATH:   %IMAGES_PATH%
 echo   BUILD_TYPE:    %BUILD_TYPE%
 echo   CMAKE:         %CMAKE_PATH%
+echo   NINJA:         %NINJA_PATH%
 echo   SOURCE:        %SOURCE_PATH%
 echo.
 
@@ -81,6 +94,11 @@ if exist Makefile del /F /Q Makefile
 REM Change to script directory
 cd /d "%SCRIPT_DIR%"
 
+REM Add Ninja to PATH
+for %%i in ("%NINJA_PATH%") do set "NINJA_DIR=%%~dpi"
+set "NINJA_DIR=%NINJA_DIR:~0,-1%"
+set "PATH=%NINJA_DIR%;%PATH%"
+
 REM Run CMake with absolute paths (use forward slashes for CMake compatibility)
 set "ARM_GCC_PATH=%ARM_GCC_PATH:\=/%"
 set "NRF_SDK_PATH=%NRF_SDK_PATH:\=/%"
@@ -93,7 +111,7 @@ set "TOOLCHAIN_FILE=%SCRIPT_DIR%\toolchain-arm-none-eabi.cmake"
 set "TOOLCHAIN_FILE=%TOOLCHAIN_FILE:\=/%"
 
 "%CMAKE_PATH%" ^
-    -G "MinGW Makefiles" ^
+    -G "Ninja" ^
     -DCMAKE_TOOLCHAIN_FILE="%TOOLCHAIN_FILE%" ^
     -DARM_GCC_PATH:STRING="%ARM_GCC_PATH%" ^
     -DNRF_SDK_PATH:STRING="%NRF_SDK_PATH%" ^
