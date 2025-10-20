@@ -304,13 +304,16 @@ bool LVGLScriptRunner::flashFirmware() {
     return false;
   }
 
-  qDebug() << "Flashing firmware from:" << hexFile;
+  // Convert to native path separators for the command line
+  QString nativeHexFile = QDir::toNativeSeparators(hexFile);
+
+  qDebug() << "Flashing firmware from:" << nativeHexFile;
 
   // Run nrfutil to flash the firmware
   QProcess flashProcess;
   flashProcess.start("nrfutil", QStringList()
                                     << "device" << "program"
-                                    << "--firmware" << hexFile
+                                    << "--firmware" << nativeHexFile
                                     << "--options" << "chip_erase_mode=ERASE_ALL,verify=VERIFY_READ,reset=RESET_SYSTEM");
 
   if (!flashProcess.waitForStarted()) {
