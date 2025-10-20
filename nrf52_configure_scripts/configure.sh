@@ -27,6 +27,17 @@ CMAKE_PATH="$(cd "$SCRIPT_DIR/../libraries/cmake/bin" 2>/dev/null && pwd)" || {
     exit 1
 }
 
+NINJA_PATH="$(cd "$SCRIPT_DIR/../libraries/ninja" 2>/dev/null && pwd)" || {
+    echo "Error: Ninja not found at ../libraries/ninja"
+    exit 1
+}
+
+# Check if ninja executable exists
+if [ ! -f "$NINJA_PATH/ninja" ]; then
+    echo "Error: Ninja executable not found at $NINJA_PATH/ninja"
+    exit 1
+fi
+
 SOURCE_PATH="$(cd "$SCRIPT_DIR/../libraries/nrf52-lcd-tester-fw" 2>/dev/null && pwd)" || {
     echo "Error: Source not found at ../libraries/nrf52-lcd-tester-fw"
     exit 1
@@ -48,22 +59,42 @@ echo "  LVGL_PATH:     $LVGL_PATH"
 echo "  IMAGES_PATH:   $IMAGES_PATH"
 echo "  BUILD_TYPE:    $BUILD_TYPE"
 echo "  CMAKE:         $CMAKE_PATH/cmake"
+echo "  NINJA:         $NINJA_PATH/ninja"
 echo "  SOURCE:        $SOURCE_PATH"
 echo ""
 
-# Clean previous configuration if requested
-if [ "$2" = "clean" ]; then
-    echo "Cleaning previous build files..."
-    rm -rf CMakeCache.txt CMakeFiles/
-fi
+# Always clean previous build files to ensure fresh configuration
+echo "Cleaning previous build files..."
+rm -f CMakeCache.txt cmake_install.cmake Makefile
+rm -rf CMakeFiles/
 
-# Run CMake with absolute paths
+# Add Ninja to PATH
+export PATH="$NINJA_PATH:$PATH"
+
+# Export paths as environment variables so they're available during CMake's try_compile phase
+export ARM_GCC_PATH
+export NRF_SDK_PATH
+export LVGL_PATH
+export IMAGES_PATH
+
+# Set toolchain file path
+TOOLCHAIN_FILE="$SCRIPT_DIR/toolchain-arm-none-eabi.cmake"
+
+# Run CMake with absolute paths and Ninja generator
 "$CMAKE_PATH/cmake" \
-    -DARM_GCC_PATH="$ARM_GCC_PATH" \
-    -DNRF_SDK_PATH="$NRF_SDK_PATH" \
-    -DLVGL_PATH="$LVGL_PATH" \
-    -DIMAGES_PATH="$IMAGES_PATH" \
+    -G "Ninja" \
+    -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
+    -DARM_GCC_PATH:STRING="$ARM_GCC_PATH" \
+    -DNRF_SDK_PATH:STRING="$NRF_SDK_PATH" \
+    -DLVGL_PATH:STRING="$LVGL_PATH" \
+    -DIMAGES_PATH:STRING="$IMAGES_PATH" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     "$SOURCE_PATH"
+
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "Configuration failed!"
+    exit 1
+fi
 
 "$CMAKE_PATH/cmake" --build .

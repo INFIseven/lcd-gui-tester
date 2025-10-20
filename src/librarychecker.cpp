@@ -865,6 +865,48 @@ void LibraryChecker::onDownloadError(QNetworkReply::NetworkError error)
     }
 }
 
+bool LibraryChecker::copyDirectoryRecursively(const QString& sourceDir, const QString& destDir)
+{
+    QDir source(sourceDir);
+    if (!source.exists()) {
+        qDebug() << "ERROR: Source directory does not exist:" << sourceDir;
+        return false;
+    }
+
+    QDir dest(destDir);
+    if (!dest.exists()) {
+        if (!dest.mkpath(".")) {
+            qDebug() << "ERROR: Failed to create destination directory:" << destDir;
+            return false;
+        }
+    }
+
+    // Copy all files
+    QStringList files = source.entryList(QDir::Files);
+    for (const QString& fileName : files) {
+        QString srcFilePath = source.absoluteFilePath(fileName);
+        QString destFilePath = dest.absoluteFilePath(fileName);
+
+        if (!QFile::copy(srcFilePath, destFilePath)) {
+            qDebug() << "ERROR: Failed to copy file:" << srcFilePath << "to" << destFilePath;
+            return false;
+        }
+    }
+
+    // Recursively copy all subdirectories
+    QStringList dirs = source.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString& dirName : dirs) {
+        QString srcDirPath = source.absoluteFilePath(dirName);
+        QString destDirPath = dest.absoluteFilePath(dirName);
+
+        if (!copyDirectoryRecursively(srcDirPath, destDirPath)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extractPath, const QString& targetFolder)
 {
     QProcess unzipProcess;
@@ -884,9 +926,13 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
                  .arg(zipPath).arg(tempExtractBase);
 #else
     // Use unzip command on Linux/macOS
+    // Extract to temporary directory to avoid file conflicts
+    QString tempExtractBase = "/tmp/lcd_extract_" + QString::number(QDateTime::currentMSecsSinceEpoch());
+    QDir().mkpath(tempExtractBase);
+
     QString command = "unzip";
     QStringList arguments;
-    arguments << "-o" << zipPath << "-d" << extractPath;
+    arguments << "-o" << zipPath << "-d" << tempExtractBase;
 #endif
 
     unzipProcess.start(command, arguments);
@@ -911,12 +957,8 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
 #endif
 
     if (exitCode == 0 && !hasErrors) {
-#ifdef Q_OS_WIN
-        // On Windows, we extracted to a temp directory, so use that
+        // We always extract to tempExtractBase now on all platforms
         QDir extractDir(tempExtractBase);
-#else
-        QDir extractDir(extractPath);
-#endif
 
         // Special handling for Ninja - it extracts directly (no subdirectory)
         if (targetFolder == NINJA_FOLDER) {
@@ -924,7 +966,7 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
             QDir(finalPath).removeRecursively();
             QDir().mkpath(finalPath);
 
-            // Move all files from extraction directory to final path
+            // Copy all files from extraction directory to final path (works across filesystems)
             QStringList allFiles = extractDir.entryList(QDir::Files);
             bool moveSuccess = true;
 
@@ -932,8 +974,8 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
                 QString srcFile = extractDir.absoluteFilePath(file);
                 QString dstFile = finalPath + "/" + file;
 
-                if (!QFile::rename(srcFile, dstFile)) {
-                    qDebug() << "ERROR: Failed to move" << srcFile << "to" << dstFile;
+                if (!QFile::copy(srcFile, dstFile)) {
+                    qDebug() << "ERROR: Failed to copy" << srcFile << "to" << dstFile;
                     moveSuccess = false;
                     break;
                 }
@@ -941,19 +983,28 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
 
             if (moveSuccess && !allFiles.isEmpty()) {
                 qDebug() << "Successfully extracted Ninja to" << finalPath;
-#ifdef Q_OS_WIN
+
+#ifndef Q_OS_WIN
+                // Make ninja executable on Unix systems
+                QString ninjaExe = finalPath + "/ninja";
+                if (QFile::exists(ninjaExe)) {
+                    QFile::setPermissions(ninjaExe,
+                        QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner |
+                        QFile::ReadGroup | QFile::ExeGroup |
+                        QFile::ReadOther | QFile::ExeOther);
+                    qDebug() << "Set executable permissions on" << ninjaExe;
+                }
+#endif
+
                 // Clean up temp directory
                 QDir(tempExtractBase).removeRecursively();
-#endif
                 // Delete the .zip file
                 QFile::remove(zipPath);
                 return true;
             } else {
                 qDebug() << "ERROR: Failed to extract Ninja";
-#ifdef Q_OS_WIN
                 // Clean up temp directory
                 QDir(tempExtractBase).removeRecursively();
-#endif
                 return false;
             }
         }
@@ -988,48 +1039,40 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
                 QString finalPath = extractPath + "/" + QFileInfo(newPath).fileName();
                 QDir(finalPath).removeRecursively();
 
-                // Move the extracted folder to final location
-                bool renameSuccess = QDir().rename(oldPath, finalPath);
+                // Copy the extracted folder to final location (works across filesystems)
+                bool copySuccess = copyDirectoryRecursively(oldPath, finalPath);
 
-                if (renameSuccess) {
-                    qDebug() << "Successfully moved" << oldPath << "to" << finalPath;
+                if (copySuccess) {
+                    qDebug() << "Successfully copied" << oldPath << "to" << finalPath;
 
                     // Verify the extracted folder exists and has content
                     QDir verifyDir(finalPath);
                     if (!verifyDir.exists()) {
                         qDebug() << "ERROR: Moved folder does not exist:" << finalPath;
-#ifdef Q_OS_WIN
                         // Clean up temp directory
                         QDir(tempExtractBase).removeRecursively();
-#endif
                         return false;
                     }
 
                     QStringList contents = verifyDir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
                     if (contents.isEmpty()) {
                         qDebug() << "ERROR: Extracted folder is empty:" << finalPath;
-#ifdef Q_OS_WIN
                         // Clean up temp directory
                         QDir(tempExtractBase).removeRecursively();
-#endif
                         return false;
                     }
 
                     qDebug() << "Extraction verified. Folder contains" << contents.size() << "items";
 
-#ifdef Q_OS_WIN
                     // Clean up temp directory
                     QDir(tempExtractBase).removeRecursively();
-#endif
                     // Delete the .zip file
                     QFile::remove(zipPath);
                     return true;
                 } else {
-                    qDebug() << "ERROR: Failed to move" << oldPath << "to" << finalPath;
-#ifdef Q_OS_WIN
+                    qDebug() << "ERROR: Failed to copy" << oldPath << "to" << finalPath;
                     // Clean up temp directory
                     QDir(tempExtractBase).removeRecursively();
-#endif
                     return false;
                 }
             }
@@ -1037,19 +1080,15 @@ bool LibraryChecker::extractZipFile(const QString& zipPath, const QString& extra
 
         // If no rename needed (direct extraction), just delete the zip
         qDebug() << "No rename needed, extraction complete";
-#ifdef Q_OS_WIN
         // Clean up temp directory
         QDir(tempExtractBase).removeRecursively();
-#endif
         QFile::remove(zipPath);
         return true;
     }
 
     qDebug() << "Extraction failed - exit code:" << exitCode << "or errors detected in stderr";
-#ifdef Q_OS_WIN
     // Clean up temp directory on failure
     QDir(tempExtractBase).removeRecursively();
-#endif
     return false;
 }
 

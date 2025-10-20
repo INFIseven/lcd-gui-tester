@@ -50,6 +50,7 @@ private:
     QString getNinjaUrl();
     bool extractZipFile(const QString& zipPath, const QString& extractPath, const QString& targetFolder = "");
     bool extractTarFile(const QString& tarPath, const QString& extractPath, const QString& targetFolder = "");
+    bool copyDirectoryRecursively(const QString& sourceDir, const QString& destDir);
     QString getLibrariesPath();
     QString getArmGnuToolchainUrl();
     
