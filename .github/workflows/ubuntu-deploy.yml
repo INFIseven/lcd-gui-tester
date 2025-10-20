@@ -34,6 +34,12 @@ jobs:
         cp build/lcd-gui-tester lcd-gui-tester-linux/
         cp README.md lcd-gui-tester-linux/
 
+        # Copy nRF52 configure scripts
+        if [[ -d "build/build_mcu" ]]; then
+          echo "Copying nRF52 configure scripts..."
+          cp -r build/build_mcu lcd-gui-tester-linux/
+        fi
+
         # Find and copy Qt6 libraries and their dependencies
         echo "Bundling Qt6 libraries..."
         ldd build/lcd-gui-tester | grep -E "(Qt6|libQt)" | awk '{print $3}' | while read lib; do

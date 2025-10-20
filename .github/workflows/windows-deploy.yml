@@ -46,6 +46,12 @@ jobs:
         Copy-Item build\lcd-gui-tester.exe lcd-gui-tester-windows\
         Copy-Item README.md lcd-gui-tester-windows\
 
+        # Copy nRF52 configure scripts
+        if (Test-Path build\build_mcu) {
+          Write-Host "Copying nRF52 configure scripts..."
+          Copy-Item -Recurse build\build_mcu lcd-gui-tester-windows\
+        }
+
         # Use windeployqt to bundle Qt libraries
         Write-Host "Bundling Qt6 libraries..."
         & windeployqt lcd-gui-tester-windows\lcd-gui-tester.exe --release --no-translations
