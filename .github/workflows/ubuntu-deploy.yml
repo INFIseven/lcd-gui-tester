@@ -24,13 +24,6 @@ jobs:
     - name: Build
       run: cmake --build build --config Release
 
-    - name: Convert Instructions to PDF
-      uses: baileyjm02/markdown-to-pdf@v1
-      with:
-        input_path: instructions/instructions.md
-        output_dir: instructions
-        build_html: false
-
     - name: Package Application
       run: |
         # Create distribution directory structure
