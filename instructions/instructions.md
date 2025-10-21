@@ -59,7 +59,8 @@
   - **Linux x64**: Download directly:
 
     ```bash
-    wget -O nrfutil https://developer.nordicsemi.com/.pc-tools/nrfutil/x64-linux/nrfutil
+    wget -O nrfutil https://developer.nordicsemi.com/ \ 
+    .pc-tools/nrfutil/x64-linux/nrfutil
     chmod +x nrfutil
     sudo mv nrfutil /usr/local/bin/
     nrfutil install device

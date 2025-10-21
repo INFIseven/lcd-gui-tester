@@ -30,8 +30,9 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-latex-extra
 
-        # Convert instructions.md to PDF
-        pandoc instructions/instructions.md -o instructions/instructions.pdf --pdf-engine=pdflatex
+        # Change to instructions directory and convert to PDF
+        cd instructions
+        pandoc instructions.md -o instructions.pdf --pdf-engine=pdflatex
 
     - name: Package Application
       run: |

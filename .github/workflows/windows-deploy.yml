@@ -41,11 +41,12 @@ jobs:
         # Install pandoc for converting Markdown to PDF
         choco install pandoc miktex -y
 
-        # Refresh environment to get pandoc in PATH
-        refreshenv
+        # Add MiKTeX to PATH explicitly
+        $env:PATH = "C:\Program Files\MiKTeX\miktex\bin\x64;$env:PATH"
 
-        # Convert instructions.md to PDF
-        pandoc instructions/instructions.md -o instructions/instructions.pdf --pdf-engine=pdflatex
+        # Change to instructions directory and convert to PDF
+        cd instructions
+        pandoc instructions.md -o instructions.pdf --pdf-engine=pdflatex
       shell: powershell
 
     - name: Package Windows Application
