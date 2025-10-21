@@ -23,7 +23,16 @@ jobs:
       
     - name: Build
       run: cmake --build build --config Release
-      
+
+    - name: Convert Instructions to PDF
+      run: |
+        # Install pandoc and texlive for converting Markdown to PDF
+        sudo apt-get update
+        sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-latex-extra
+
+        # Convert instructions.md to PDF
+        pandoc instructions/instructions.md -o instructions/instructions.pdf --pdf-engine=pdflatex
+
     - name: Package Application
       run: |
         # Create distribution directory structure
@@ -33,6 +42,7 @@ jobs:
         # Copy executable
         cp build/lcd-gui-tester lcd-gui-tester-linux/
         cp README.md lcd-gui-tester-linux/
+        cp instructions/instructions.pdf lcd-gui-tester-linux/
 
         # Copy nRF52 configure scripts
         if [[ -d "build/build_mcu" ]]; then

@@ -36,6 +36,18 @@ jobs:
     - name: Build
       run: cmake --build build --config Release
 
+    - name: Convert Instructions to PDF
+      run: |
+        # Install pandoc for converting Markdown to PDF
+        choco install pandoc miktex -y
+
+        # Refresh environment to get pandoc in PATH
+        refreshenv
+
+        # Convert instructions.md to PDF
+        pandoc instructions/instructions.md -o instructions/instructions.pdf --pdf-engine=pdflatex
+      shell: powershell
+
     - name: Package Windows Application
       shell: powershell
       run: |
@@ -45,6 +57,7 @@ jobs:
         # Copy executable
         Copy-Item build\lcd-gui-tester.exe lcd-gui-tester-windows\
         Copy-Item README.md lcd-gui-tester-windows\
+        Copy-Item instructions\instructions.pdf lcd-gui-tester-windows\
 
         # Copy nRF52 configure scripts
         if (Test-Path build\build_mcu) {
