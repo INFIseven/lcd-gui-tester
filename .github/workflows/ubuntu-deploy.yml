@@ -25,14 +25,11 @@ jobs:
       run: cmake --build build --config Release
 
     - name: Convert Instructions to PDF
-      run: |
-        # Install pandoc and texlive for converting Markdown to PDF
-        sudo apt-get update
-        sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-latex-extra
-
-        # Change to instructions directory and convert to PDF
-        cd instructions
-        pandoc instructions.md -o instructions.pdf --pdf-engine=pdflatex
+      uses: baileyjm02/markdown-to-pdf@v1
+      with:
+        input_path: instructions/instructions.md
+        output_dir: instructions
+        build_html: false
 
     - name: Package Application
       run: |

@@ -37,17 +37,11 @@ jobs:
       run: cmake --build build --config Release
 
     - name: Convert Instructions to PDF
-      run: |
-        # Install pandoc for converting Markdown to PDF
-        choco install pandoc miktex -y
-
-        # Add MiKTeX to PATH explicitly
-        $env:PATH = "C:\Program Files\MiKTeX\miktex\bin\x64;$env:PATH"
-
-        # Change to instructions directory and convert to PDF
-        cd instructions
-        pandoc instructions.md -o instructions.pdf --pdf-engine=pdflatex
-      shell: powershell
+      uses: baileyjm02/markdown-to-pdf@v1
+      with:
+        input_path: instructions/instructions.md
+        output_dir: instructions
+        build_html: false
 
     - name: Package Windows Application
       shell: powershell
