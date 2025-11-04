@@ -104,7 +104,7 @@
    ./lcd-gui-tester
    ```
 
-### macOS
+### macOS (Not yet supported)
 
 1. Download the LCD GUI Tester application for macOS
 2. Extract the archive to your desired location
@@ -133,21 +133,14 @@ When running the application for the first time on Windows, you may encounter a 
 
 The application is safe to run. The SmartScreen warning appears only because the executable is not signed, not because there is any security risk.
 
+⚠️ **NOTE:** When the application is started for the first time, required packages will be downloaded. The download time depends on your internet connection and computer performance. During this process, the download window may temporarily disappear — this is normal. Once all downloads are complete, the application will launch automatically..
+
 ### Basic Usage
 
-1. Launch the LCD GUI Tester application
-2. The main window provides an interface for LCD GUI testing
-3. Use the image preview feature by dragging and dropping images
-4. Execute LVGL scripts for testing display functionality
-
-### Firmware Flashing
-
-To flash firmware to your nRF52 device:
-
-1. Ensure your nRF52 device is connected via USB
-2. Use the firmware flashing feature in the application
-3. Select the firmware file you wish to flash
-4. Follow the on-screen prompts to complete the flashing process
+1. Launch the LCD GUI Tester application.
+2. The main window provides an interface for LCD GUI testing.
+3. Use the image preview feature by dragging and dropping images. ⚠️ **NOTE:** Currently only a single image transfer is supported.
+4. Click the **UPLOAD** button and wait for the image to be transferred to the test-bench. ⏱️ **NOTE:** The first transfer may take a longer time.
 
 ## Troubleshooting
 
@@ -162,10 +155,9 @@ If you encounter errors related to nrfutil:
 ### Common Issues
 
 **Application won't start**
-  - Ensure all Qt6 dependencies are installed
   - Check that your system meets the minimum requirements
 
 **Firmware flashing fails**
-  - Verify the nRF52 device is properly connected
+  - Verify the test-bench is correctly connected and powered
   - Check that nrfutil is correctly installed and accessible in your PATH
   - Ensure you have the necessary permissions to access USB devices (Linux/macOS may require sudo or udev rules)
