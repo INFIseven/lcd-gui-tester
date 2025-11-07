@@ -1,0 +1,97 @@
+name: Windows Build and Deploy (Debug)
+
+on:
+  push:
+    tags:
+      - 'v*-debug'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Qt6
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: '6.6.0'
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2019_64'
+        modules: 'qtnetworkauth'
+        cache: true
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - name: Install Ninja
+      run: choco install ninja
+
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -G "Ninja"
+
+    - name: Build
+      run: cmake --build build --config Debug
+
+    - name: Package Windows Application
+      shell: powershell
+      run: |
+        # Create distribution directory
+        New-Item -ItemType Directory -Force -Path lcd-gui-tester-windows-debug
+
+        # Copy executable
+        Copy-Item build\lcd-gui-tester.exe lcd-gui-tester-windows-debug\
+        Copy-Item README.md lcd-gui-tester-windows-debug\
+        Copy-Item instructions\instructions.pdf lcd-gui-tester-windows-debug\
+
+        # Copy nRF52 configure scripts
+        if (Test-Path build\build_mcu) {
+          Write-Host "Copying nRF52 configure scripts..."
+          Copy-Item -Recurse build\build_mcu lcd-gui-tester-windows-debug\
+        }
+
+        # Use windeployqt to bundle Qt libraries (debug version)
+        Write-Host "Bundling Qt6 libraries (Debug)..."
+        & windeployqt lcd-gui-tester-windows-debug\lcd-gui-tester.exe --debug --no-translations
+
+        # Create installation instructions
+        @"
+        LCD GUI Tester - Installation Instructions (DEBUG BUILD)
+        =========================================
+
+        This is a DEBUG build of LCD GUI Tester with debugging symbols and additional diagnostics.
+        This build is larger and slower than the release version but provides better debugging information.
+
+        This package contains a self-contained version of LCD GUI Tester with all Qt6 libraries bundled.
+
+        To run:
+        1. Extract this archive
+        2. Double-click lcd-gui-tester.exe
+
+        Requirements: Windows 10/11 x64
+        "@ | Out-File -FilePath lcd-gui-tester-windows-debug\INSTALL.txt -Encoding UTF8
+
+        # Show bundled files
+        Write-Host "Bundled files:"
+        Get-ChildItem -Recurse lcd-gui-tester-windows-debug
+
+        # Create ZIP archive
+        Compress-Archive -Path lcd-gui-tester-windows-debug\* -DestinationPath lcd-gui-tester-windows-debug.zip
+
+    - name: Upload Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: lcd-gui-tester-windows-debug
+        path: lcd-gui-tester-windows-debug.zip
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: lcd-gui-tester-windows-debug.zip
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

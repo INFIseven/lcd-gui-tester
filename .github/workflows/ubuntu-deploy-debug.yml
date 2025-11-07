@@ -1,0 +1,132 @@
+name: Ubuntu Build and Deploy (Debug)
+
+on:
+  push:
+    tags:
+      - 'v*-debug'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Qt6
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qt6-base-dev qt6-tools-dev cmake build-essential \
+          libgl1-mesa-dev libglu1-mesa-dev libxkbcommon-dev
+
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Debug
+
+    - name: Build
+      run: cmake --build build --config Debug
+
+    - name: Package Application
+      run: |
+        # Create distribution directory structure
+        mkdir -p lcd-gui-tester-linux-debug/lib
+        mkdir -p lcd-gui-tester-linux-debug/plugins/platforms
+
+        # Copy executable
+        cp build/lcd-gui-tester lcd-gui-tester-linux-debug/
+        cp README.md lcd-gui-tester-linux-debug/
+        cp instructions/instructions.pdf lcd-gui-tester-linux-debug/
+
+        # Copy nRF52 configure scripts
+        if [[ -d "build/build_mcu" ]]; then
+          echo "Copying nRF52 configure scripts..."
+          cp -r build/build_mcu lcd-gui-tester-linux-debug/
+        fi
+
+        # Find and copy Qt6 libraries and their dependencies
+        echo "Bundling Qt6 libraries..."
+        ldd build/lcd-gui-tester | grep -E "(Qt6|libQt)" | awk '{print $3}' | while read lib; do
+          if [[ -f "$lib" ]]; then
+            echo "Copying Qt library: $lib"
+            cp "$lib" lcd-gui-tester-linux-debug/lib/
+          fi
+        done
+
+        # Also copy any dbus libraries that Qt6 might depend on
+        echo "Bundling dbus dependencies..."
+        ldd build/lcd-gui-tester | grep -E "(dbus|libdbus)" | awk '{print $3}' | while read lib; do
+          if [[ -f "$lib" ]]; then
+            echo "Copying dbus library: $lib"
+            cp "$lib" lcd-gui-tester-linux-debug/lib/
+          fi
+        done
+
+        # Copy Qt6 platform plugins (essential for GUI apps)
+        QT_PLUGIN_PATH="/usr/lib/x86_64-linux-gnu/qt6/plugins"
+        if [[ -d "$QT_PLUGIN_PATH/platforms" ]]; then
+          cp -r "$QT_PLUGIN_PATH/platforms"/* lcd-gui-tester-linux-debug/plugins/platforms/ 2>/dev/null || true
+        fi
+
+        # Copy other essential Qt6 plugins
+        for plugin_dir in imageformats iconengines; do
+          if [[ -d "$QT_PLUGIN_PATH/$plugin_dir" ]]; then
+            mkdir -p lcd-gui-tester-linux-debug/plugins/$plugin_dir
+            cp -r "$QT_PLUGIN_PATH/$plugin_dir"/* lcd-gui-tester-linux-debug/plugins/$plugin_dir/ 2>/dev/null || true
+          fi
+        done
+
+        # Create launcher script that sets up library paths
+        cat > lcd-gui-tester-linux-debug/lcd-gui-tester.sh << 'EOF'
+        #!/bin/bash
+        DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+        # Set up library and plugin paths
+        export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
+        export QT_PLUGIN_PATH="$DIR/plugins"
+        export QT_QPA_PLATFORM_PLUGIN_PATH="$DIR/plugins/platforms"
+
+        # Run the application
+        exec "$DIR/lcd-gui-tester" "$@"
+        EOF
+        chmod +x lcd-gui-tester-linux-debug/lcd-gui-tester.sh
+
+        # Create simple installation instructions
+        cat > lcd-gui-tester-linux-debug/INSTALL.txt << 'EOF'
+        LCD GUI Tester - Installation Instructions (DEBUG BUILD)
+        =========================================
+
+        This is a DEBUG build of LCD GUI Tester with debugging symbols and additional diagnostics.
+        This build is larger and slower than the release version but provides better debugging information.
+
+        This package contains a self-contained version of LCD GUI Tester with all Qt6 libraries bundled.
+
+        To run:
+        1. Extract this archive
+        2. Run: ./lcd-gui-tester.sh
+
+        Or run the executable directly: ./lcd-gui-tester
+
+        Requirements: Linux x86_64 with glibc 2.31+ (Ubuntu 20.04+ or equivalent)
+        EOF
+
+        # Show what we've bundled
+        echo "Bundled libraries:"
+        ls -la lcd-gui-tester-linux-debug/lib/
+        echo "Bundled plugins:"
+        find lcd-gui-tester-linux-debug/plugins -type f
+
+        # Create tarball
+        tar -czf lcd-gui-tester-linux-debug.tar.gz lcd-gui-tester-linux-debug/
+
+    - name: Upload Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: lcd-gui-tester-linux-debug
+        path: lcd-gui-tester-linux-debug.tar.gz
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: lcd-gui-tester-linux-debug.tar.gz
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

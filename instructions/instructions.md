@@ -15,7 +15,7 @@
 
   https://www.segger.com/downloads/jlink/
 
-  Select the appropriate version for your operating system (Windows, Linux, or macOS).
+  Select the appropriate version for your operating system (Windows x64, Linux, or macOS). ⚠️ **NOTE:** For Windows, you must select the x64 version, as the app is supported only on x64 systems.
 
 - **nrfutil 7.x or later** (the new Rust-based version)
 
@@ -24,7 +24,7 @@
   To check your nrfutil version:
 
   ```bash
-  nrfutil version
+  nrfutil --version
   ```
 
   Expected output should show version 7.0.0 or higher:
