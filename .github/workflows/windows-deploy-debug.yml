@@ -57,6 +57,39 @@ jobs:
         Write-Host "Bundling Qt6 libraries (Debug)..."
         & windeployqt lcd-gui-tester-windows-debug\lcd-gui-tester.exe --debug --no-translations
 
+        # Copy additional debug runtime DLLs that windeployqt might miss
+        Write-Host "Copying additional debug runtime DLLs..."
+        $debugRuntimeDlls = @(
+          "ucrtbased.dll",
+          "msvcp140d.dll",
+          "vcruntime140d.dll",
+          "vcruntime140_1d.dll"
+        )
+
+        foreach ($dll in $debugRuntimeDlls) {
+          $dllPath = (Get-Command $dll -ErrorAction SilentlyContinue).Source
+          if ($dllPath) {
+            Write-Host "Copying $dll from $dllPath"
+            Copy-Item $dllPath lcd-gui-tester-windows-debug\ -ErrorAction SilentlyContinue
+          } else {
+            Write-Host "Warning: Could not find $dll in PATH, searching Windows SDK..."
+            # Search in common Windows SDK locations
+            $sdkPaths = @(
+              "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\ucrt\$dll",
+              "C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\debug_nonredist\x64\Microsoft.VC*.CRT\$dll",
+              "C:\Windows\System32\$dll"
+            )
+            foreach ($searchPath in $sdkPaths) {
+              $found = Get-Item $searchPath -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($found) {
+                Write-Host "Found and copying $dll from $($found.FullName)"
+                Copy-Item $found.FullName lcd-gui-tester-windows-debug\ -ErrorAction SilentlyContinue
+                break
+              }
+            }
+          }
+        }
+
         # Create installation instructions
         @"
         LCD GUI Tester - Installation Instructions (DEBUG BUILD)
