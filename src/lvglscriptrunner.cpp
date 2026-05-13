@@ -10,6 +10,28 @@
 #include <QProgressDialog>
 #include <QTextStream>
 #include <QtConcurrent/QtConcurrent>
+#include <cmath>
+
+namespace {
+constexpr int kPwmTop = 1000;
+
+// CIE 1931 lightness curve: maps perceived brightness (0..100) to luminance
+// (0..top). Human brightness perception is roughly cubic, so a linear duty
+// ramp crowds all visible change into the bottom of the slider.
+int cieLightnessToPwm(int percent, int top) {
+  if (percent <= 0) return 0;
+  if (percent >= 100) return top;
+  const double L = static_cast<double>(percent);
+  double Y;
+  if (L <= 8.0) {
+    Y = L / 903.296296296;
+  } else {
+    const double t = (L + 16.0) / 116.0;
+    Y = t * t * t;
+  }
+  return static_cast<int>(std::lround(Y * top));
+}
+}  // namespace
 
 LVGLScriptRunner::LVGLScriptRunner(QWidget *parent)
     : QObject(parent), m_parent(parent), m_embeddedPython(nullptr),
@@ -219,13 +241,18 @@ bool LVGLScriptRunner::processImages(const QStringList &imagePaths,
     implFile.close();
   }
 
-  // Emit display config header consumed by firmware main.c
+  // Emit display config header consumed by firmware main.c.
+  // Brightness is linearized GUI-side via CIE 1931 so the firmware can just
+  // program the count directly into the PWM peripheral (1000-step top).
+  const int pwmValue = cieLightnessToPwm(m_brightness, kPwmTop);
   QString configPath = generatedDir.filePath("generated_config.h");
   QFile configFile(configPath);
   if (configFile.open(QIODevice::WriteOnly)) {
     QTextStream stream(&configFile);
     stream << "#pragma once\n\n";
     stream << "#define LCD_BRIGHTNESS_PERCENT " << m_brightness << "\n";
+    stream << "#define LCD_BRIGHTNESS_PWM_TOP " << kPwmTop << "\n";
+    stream << "#define LCD_BRIGHTNESS_PWM_VALUE " << pwmValue << "\n";
     configFile.close();
   } else {
     qDebug() << "Failed to write generated_config.h at:" << configPath;
