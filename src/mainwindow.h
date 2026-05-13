@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSlider>
 #include <QWidget>
 #include <QFrame>
 #include <QMessageBox>
@@ -46,6 +47,7 @@ private slots:
     void flashImages();
     void onProcessingCompleted(bool success, const QString &message);
     void onProcessingProgress(const QString &status);
+    void onBrightnessChanged(int value);
 
 private:
     void setupUI();
@@ -55,10 +57,13 @@ private:
     static constexpr int MAX_IMAGES = 10;
     static constexpr int REQUIRED_WIDTH = 170;
     static constexpr int REQUIRED_HEIGHT = 320;
+    static constexpr int DEFAULT_BRIGHTNESS = 50;
 
     QWidget *m_centralWidget;
     ImageDropWidget *m_dropWidget;
     QLabel *m_counterLabel;
+    QSlider *m_brightnessSlider;
+    QLabel *m_brightnessValueLabel;
     QScrollArea *m_scrollArea;
     QWidget *m_imagesWidget;
     QGridLayout *m_imagesLayout;

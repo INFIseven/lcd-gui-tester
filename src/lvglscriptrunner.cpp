@@ -52,6 +52,12 @@ bool LVGLScriptRunner::ensurePythonReady() {
   return true;
 }
 
+void LVGLScriptRunner::setBrightness(int percent) {
+  if (percent < 0) percent = 0;
+  if (percent > 100) percent = 100;
+  m_brightness = percent;
+}
+
 void LVGLScriptRunner::processImagesAsync(const QStringList &imagePaths,
                                           const QString &outputDir) {
   // Run the processing in a separate thread
@@ -211,6 +217,19 @@ bool LVGLScriptRunner::processImages(const QStringList &imagePaths,
     stream << "};\n";
 
     implFile.close();
+  }
+
+  // Emit display config header consumed by firmware main.c
+  QString configPath = generatedDir.filePath("generated_config.h");
+  QFile configFile(configPath);
+  if (configFile.open(QIODevice::WriteOnly)) {
+    QTextStream stream(&configFile);
+    stream << "#pragma once\n\n";
+    stream << "#define LCD_BRIGHTNESS_PERCENT " << m_brightness << "\n";
+    configFile.close();
+  } else {
+    qDebug() << "Failed to write generated_config.h at:" << configPath;
+    return false;
   }
 
   // Automatically proceed to build and flash without confirmation dialogs

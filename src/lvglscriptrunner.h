@@ -16,6 +16,7 @@ public:
   ~LVGLScriptRunner();
 
   void processImagesAsync(const QStringList &imagePaths, const QString &outputDir);
+  void setBrightness(int percent);
 
 signals:
   void processingCompleted(bool success, const QString &message);
@@ -34,4 +35,5 @@ private:
   QWidget *m_parent;
   EmbeddedPython *m_embeddedPython;
   QFutureWatcher<bool> *m_futureWatcher;
+  int m_brightness = 50;
 };

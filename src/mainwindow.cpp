@@ -6,11 +6,13 @@
 #include <QApplication>
 #include <QFileInfo>
 #include <QPixmap>
+#include <QSettings>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_centralWidget(nullptr), m_dropWidget(nullptr),
-      m_counterLabel(nullptr), m_scrollArea(nullptr), m_imagesWidget(nullptr),
-      m_imagesLayout(nullptr), m_flashButton(nullptr),
+      m_counterLabel(nullptr), m_brightnessSlider(nullptr),
+      m_brightnessValueLabel(nullptr), m_scrollArea(nullptr),
+      m_imagesWidget(nullptr), m_imagesLayout(nullptr), m_flashButton(nullptr),
       m_startupChecker(nullptr), m_scriptRunner(nullptr) {
   QString title = "LCD GUI Tester";
 #ifdef APP_VERSION
@@ -63,6 +65,31 @@ void MainWindow::setupUI() {
   m_counterLabel = new QLabel(QString("Images: 0/%1").arg(MAX_IMAGES));
   m_counterLabel->setStyleSheet("font-weight: bold; margin: 10px;");
   mainLayout->addWidget(m_counterLabel);
+
+  // Brightness slider (applied on next UPLOAD via generated_config.h)
+  const int initialBrightness =
+      QSettings().value("display/brightness", DEFAULT_BRIGHTNESS).toInt();
+
+  auto brightnessRow = new QHBoxLayout;
+  auto brightnessLabel = new QLabel("Brightness:");
+  brightnessLabel->setStyleSheet("font-weight: bold; margin-left: 10px;");
+
+  m_brightnessSlider = new QSlider(Qt::Horizontal);
+  m_brightnessSlider->setRange(0, 100);
+  m_brightnessSlider->setValue(initialBrightness);
+
+  m_brightnessValueLabel = new QLabel(QString("%1%").arg(initialBrightness));
+  m_brightnessValueLabel->setMinimumWidth(40);
+  m_brightnessValueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  m_brightnessValueLabel->setStyleSheet("margin-right: 10px;");
+
+  brightnessRow->addWidget(brightnessLabel);
+  brightnessRow->addWidget(m_brightnessSlider, 1);
+  brightnessRow->addWidget(m_brightnessValueLabel);
+  mainLayout->addLayout(brightnessRow);
+
+  connect(m_brightnessSlider, &QSlider::valueChanged,
+          this, &MainWindow::onBrightnessChanged);
 
   // Scroll area for images
   m_scrollArea = new QScrollArea;
@@ -207,8 +234,15 @@ void MainWindow::flashImages() {
   QString appDir = QApplication::applicationDirPath();
   QString outputDir = appDir + "/generated";
 
+  m_scriptRunner->setBrightness(m_brightnessSlider->value());
+
   // Process images asynchronously with embedded Python and LVGL script
   m_scriptRunner->processImagesAsync(imagePaths, outputDir);
+}
+
+void MainWindow::onBrightnessChanged(int value) {
+  m_brightnessValueLabel->setText(QString("%1%").arg(value));
+  QSettings().setValue("display/brightness", value);
 }
 
 void MainWindow::onProcessingCompleted(bool success, const QString &message) {
