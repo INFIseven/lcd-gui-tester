@@ -54,7 +54,7 @@ private:
     void updateUI();
     bool validateImageSize(const QString& imagePath);
 
-    static constexpr int MAX_IMAGES = 10;
+    static constexpr int MAX_IMAGES = 5;
     static constexpr int REQUIRED_WIDTH = 170;
     static constexpr int REQUIRED_HEIGHT = 320;
     static constexpr int DEFAULT_BRIGHTNESS = 50;
