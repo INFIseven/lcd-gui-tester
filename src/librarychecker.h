@@ -54,7 +54,7 @@ private:
     QString getLibrariesPath();
     QString getArmGnuToolchainUrl();
     
-    static constexpr const char* LVGL_URL = "https://github.com/lvgl/lvgl/archive/refs/tags/v9.3.0.zip";
+    static constexpr const char* LVGL_URL = "https://github.com/lvgl/lvgl/archive/refs/tags/v9.5.0.zip";
     static constexpr const char* LVGL_FOLDER = "lvgl";
     static constexpr const char* NRF52_SDK_URL = "https://nsscprodmedia.blob.core.windows.net/prod/software-and-other-downloads/sdks/nrf5/binaries/nrf5_sdk_17.1.0_ddde560.zip";
     static constexpr const char* NRF52_SDK_FOLDER = "nrf5_sdk";
