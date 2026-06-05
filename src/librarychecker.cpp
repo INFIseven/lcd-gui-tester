@@ -15,6 +15,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QRegularExpression>
 
 LibraryChecker::LibraryChecker(QWidget* parent)
     : QObject(parent)
@@ -196,7 +197,43 @@ bool LibraryChecker::isLvglPresent()
             return false;
         }
     }
-    
+
+    // The presence check above is version-blind, so a cached install from an
+    // older LVGL_URL would otherwise satisfy it and never get re-downloaded.
+    // The firmware is always fetched at its latest tag (which tracks the
+    // current LVGL), so a stale lvgl/ here produces a version skew that breaks
+    // the firmware build. Parse lv_version.h and force a re-download on
+    // mismatch.
+    QFile versionFile(lvglDir.absoluteFilePath("lv_version.h"));
+    if (!versionFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qDebug() << "Could not read LVGL lv_version.h; treating as not present";
+        return false;
+    }
+
+    const QString versionContents = QString::fromUtf8(versionFile.readAll());
+    versionFile.close();
+
+    const QRegularExpression majorRe("LVGL_VERSION_MAJOR\\s+(\\d+)");
+    const QRegularExpression minorRe("LVGL_VERSION_MINOR\\s+(\\d+)");
+    const QRegularExpression patchRe("LVGL_VERSION_PATCH\\s+(\\d+)");
+    const QRegularExpressionMatch majorMatch = majorRe.match(versionContents);
+    const QRegularExpressionMatch minorMatch = minorRe.match(versionContents);
+    const QRegularExpressionMatch patchMatch = patchRe.match(versionContents);
+
+    if (!majorMatch.hasMatch() || !minorMatch.hasMatch() || !patchMatch.hasMatch()) {
+        qDebug() << "Could not parse LVGL version from lv_version.h; forcing re-download";
+        return false;
+    }
+
+    const QString installedVersion = majorMatch.captured(1) + "." +
+                                     minorMatch.captured(1) + "." +
+                                     patchMatch.captured(1);
+    if (installedVersion != LVGL_VERSION) {
+        qDebug() << "LVGL version mismatch: installed" << installedVersion
+                 << "but expected" << LVGL_VERSION << "- forcing re-download";
+        return false;
+    }
+
     return true;
 }
 
