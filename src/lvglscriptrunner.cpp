@@ -149,6 +149,13 @@ bool LVGLScriptRunner::processImages(const QStringList &imagePaths,
       }
     }
 
+    // A C identifier cannot be empty or begin with a digit (e.g. image files
+    // named "0.png"/"1.png" would yield invalid declarations like
+    // "const lv_img_dsc_t 0;"). Prefix such names so the emitted C compiles.
+    if (baseName.isEmpty() || baseName[0].isDigit()) {
+      baseName.prepend("img_");
+    }
+
     QString outputFile = generatedDir.filePath(baseName + ".c");
 
     qDebug() << QString("Processing %1 (%2 of %3)...")

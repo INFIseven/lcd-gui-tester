@@ -35,6 +35,20 @@ add_compile_definitions(APP_VERSION="${GIT_TAG_VERSION}")
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Auto-locate a Qt6 SDK installed under ~/Qt (e.g. ~/Qt/6.11.1/gcc_64) so a
+# bare `cmake ..` works without passing -DCMAKE_PREFIX_PATH. An explicitly
+# provided Qt6_DIR or CMAKE_PREFIX_PATH still takes precedence.
+if(NOT Qt6_DIR AND NOT CMAKE_PREFIX_PATH)
+    file(GLOB _qt_candidates "$ENV{HOME}/Qt/*/gcc_64")
+    if(_qt_candidates)
+        list(SORT _qt_candidates)
+        list(REVERSE _qt_candidates) # prefer the highest version
+        list(GET _qt_candidates 0 _qt_prefix)
+        set(CMAKE_PREFIX_PATH "${_qt_prefix}")
+        message(STATUS "Auto-detected Qt6 at: ${_qt_prefix}")
+    endif()
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Network Concurrent)
 
 set(CMAKE_AUTOMOC ON)
